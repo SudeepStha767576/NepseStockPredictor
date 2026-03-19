@@ -32,6 +32,7 @@ HEADERS = {
 
 META_CACHE_FILE  = BASE_DIR / "cache" / "stock_meta.json"
 HIST_CACHE_DIR   = BASE_DIR / "cache" / "history"
+SS_ID_CACHE_FILE = BASE_DIR / "cache" / "ss_company_ids.json"   # sharesansar symbol→ID map
 META_CACHE_DAYS  = 7    # Refresh metadata weekly
 MAX_WORKERS      = 12   # Parallel fetch workers
 MAX_WEEKS        = 12   # Weeks of history to keep
@@ -219,6 +220,136 @@ def _save_hist_cache(symbol: str, week_start: str, daily_rows: list):
     ))
 
 
+# ─── SHARESANSAR FALLBACK OHLCV ──────────────────────────────────
+
+def _load_ss_id_cache() -> dict:
+    """Load cached sharesansar symbol → company_id mapping."""
+    if not SS_ID_CACHE_FILE.exists():
+        return {}
+    try:
+        return json.loads(SS_ID_CACHE_FILE.read_text())
+    except Exception:
+        return {}
+
+def _save_ss_id_cache(mapping: dict):
+    SS_ID_CACHE_FILE.parent.mkdir(exist_ok=True)
+    SS_ID_CACHE_FILE.write_text(json.dumps(mapping, indent=2))
+
+def _ss_get_company_id(symbol: str) -> str | None:
+    """
+    Fetch sharesansar company page for symbol and extract numeric company ID.
+    The ID is stored in a hidden <div id="companyid"> element.
+    Returns None on failure.
+    """
+    url = f"https://www.sharesansar.com/company/{symbol.lower()}"
+    try:
+        resp = requests.get(url, headers=HEADERS, timeout=15)
+        if resp.status_code != 200:
+            return None
+        soup = BeautifulSoup(resp.text, "html.parser")
+        el = soup.find(id="companyid")
+        return el.text.strip() if el else None
+    except Exception as e:
+        print(f"[scraper] SS ID error {symbol}: {e}")
+        return None
+
+def _ss_fetch_daily_rows(symbol: str, company_id: str) -> list:
+    """
+    Fetch daily OHLCV from sharesansar.com using company numeric ID.
+    Sharesansar limits page size to 20 rows — paginates 5 pages (100 rows)
+    which covers ~20 weeks of trading history (enough for all V9 signals).
+    Uses a fresh session each call to get a valid CSRF token.
+    """
+    _ss_headers = {"User-Agent": HEADERS["User-Agent"]}   # minimal headers — sharesansar rejects > Accept
+    try:
+        session = requests.Session()
+        page = session.get(
+            f"https://www.sharesansar.com/company/{symbol.lower()}",
+            headers=_ss_headers, timeout=15
+        )
+        soup = BeautifulSoup(page.text, "html.parser")
+        csrf_tag = soup.find("meta", {"name": "_token"})
+        if not csrf_tag:
+            return []
+        csrf = csrf_tag["content"]
+
+        post_headers = {
+            **_ss_headers,
+            "X-CSRF-TOKEN": csrf,
+            "X-Requested-With": "XMLHttpRequest",
+            "Accept": "application/json",
+            "Referer": f"https://www.sharesansar.com/company/{symbol.lower()}",
+            "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+        }
+
+        # Fetch 5 pages × 20 rows = 100 most-recent daily rows (≈ 20 trading weeks).
+        # Sharesansar returns data newest-first (offset 0 = most recent trading day).
+        all_rows = []
+        for draw, page_start in enumerate(range(0, 100, 20), start=1):
+            resp = session.post(
+                "https://www.sharesansar.com/company-price-history",
+                data={"draw": str(draw), "columns[0][data]": "DT_Row_Index",
+                      "start": str(page_start), "length": "20", "company": company_id},
+                headers=post_headers, timeout=15,
+            )
+            if resp.status_code != 200:
+                break
+            batch = resp.json().get("data", [])
+            if not batch:
+                break
+            all_rows.extend(batch)
+
+        result = []
+        for r in all_rows:
+            try:
+                dt = _parse_date(r["published_date"])
+                if not dt:
+                    continue
+                result.append({
+                    "date":   dt,
+                    "open":   float(r["open"].replace(",", "")),
+                    "high":   float(r["high"].replace(",", "")),
+                    "low":    float(r["low"].replace(",", "")),
+                    "close":  float(r["close"].replace(",", "")),
+                    "volume": int(float(r["traded_quantity"].replace(",", ""))),
+                })
+            except (ValueError, KeyError):
+                continue
+        return sorted(result, key=lambda x: x["date"])
+    except Exception as e:
+        print(f"[scraper] SS OHLCV error {symbol}: {e}")
+        return []
+
+def _fetch_daily_rows_with_fallback(symbol: str) -> list:
+    """
+    Try financialnotices first; fall back to sharesansar if empty.
+    Also caches the sharesansar company ID so we don't re-fetch pages.
+    """
+    rows = _fetch_daily_rows(symbol)
+    if rows:
+        return rows
+
+    # financialnotices failed — try sharesansar
+    id_cache = _load_ss_id_cache()
+    company_id = id_cache.get(symbol)
+    if company_id is None:
+        company_id = _ss_get_company_id(symbol)
+        if company_id:
+            id_cache[symbol] = company_id
+            _save_ss_id_cache(id_cache)
+        else:
+            id_cache[symbol] = ""     # mark as "not found" so we skip next time
+            _save_ss_id_cache(id_cache)
+
+    if not company_id:
+        return []
+
+    rows = _ss_fetch_daily_rows(symbol, company_id)
+    if rows:
+        print(f"[scraper] SS fallback used for {symbol} ({len(rows)} rows)")
+    return rows
+
+
 # ─── HISTORY FETCH FROM FINANCIALNOTICES ─────────────────────────
 
 def _fetch_daily_rows(symbol: str) -> list:
@@ -315,8 +446,8 @@ def get_stock_history(symbol: str) -> list:
         # Cache is current (including cached empty result) — no web fetch needed
         return _aggregate_weekly(cached["rows"], MAX_WEEKS)
 
-    # Need to refresh — fetch from financialnotices
-    daily_rows = _fetch_daily_rows(symbol)
+    # Need to refresh — try financialnotices, fall back to sharesansar
+    daily_rows = _fetch_daily_rows_with_fallback(symbol)
 
     # Always cache result (even empty) so we don't retry failed stocks this week
     _save_hist_cache(symbol, now_week, daily_rows if daily_rows else [])
