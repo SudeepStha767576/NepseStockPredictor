@@ -12,6 +12,9 @@ import json, os
 from datetime import datetime
 from pathlib import Path
 
+# Absolute path to the directory containing main.py
+BASE_DIR = Path(__file__).resolve().parent
+
 from engine import (
     score_v5, assign_grade, generate_reason,
     SignalBreakdown, PricePlan
@@ -28,8 +31,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-CACHE_FILE = Path("cache/weekly_report.json")
-ACCURACY_FILE = Path("cache/accuracy_log.json")
+CACHE_FILE = BASE_DIR / "cache" / "weekly_report.json"
+ACCURACY_FILE = BASE_DIR / "cache" / "accuracy_log.json"
 
 def ensure_cache():
     CACHE_FILE.parent.mkdir(exist_ok=True)
@@ -206,12 +209,12 @@ def get_week_label() -> str:
 @app.get("/", response_class=FileResponse)
 def serve_index():
     """Serve the main dashboard UI"""
-    return FileResponse("index.html")
+    return FileResponse(BASE_DIR / "index.html")
 
 @app.get("/backtest", response_class=FileResponse)
 def serve_backtest_page():
     """Serve the backtest UI"""
-    return FileResponse("backtest.html")
+    return FileResponse(BASE_DIR / "backtest.html")
 
 # ─── API ENDPOINTS ───────────────────────────────────────────────
 

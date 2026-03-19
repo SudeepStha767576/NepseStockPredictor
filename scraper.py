@@ -21,6 +21,8 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from engine import WeekData
 
+BASE_DIR = Path(__file__).resolve().parent
+
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
                   "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -28,8 +30,8 @@ HEADERS = {
     "Accept-Language": "en-US,en;q=0.5",
 }
 
-META_CACHE_FILE  = Path("cache/stock_meta.json")
-HIST_CACHE_DIR   = Path("cache/history")
+META_CACHE_FILE  = BASE_DIR / "cache" / "stock_meta.json"
+HIST_CACHE_DIR   = BASE_DIR / "cache" / "history"
 META_CACHE_DAYS  = 7    # Refresh metadata weekly
 MAX_WORKERS      = 12   # Parallel fetch workers
 MAX_WEEKS        = 12   # Weeks of history to keep
