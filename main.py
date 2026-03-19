@@ -183,7 +183,7 @@ def build_weekly_report(force_refresh: bool = False) -> dict:
         "neutral_count":    sum(1 for r in results if r["prediction"] == "NEUTRAL"),
         "bear_count":       sum(1 for r in results if r["prediction"] == "BEAR"),
         "model_accuracy":   None,  # populated by /backtest endpoint
-        "model_version":    "V6",
+        "model_version":    "V8",
         "stocks":           results,
     }
 

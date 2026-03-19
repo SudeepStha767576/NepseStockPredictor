@@ -48,7 +48,7 @@ class SignalBreakdown:
     atr_flag: bool = False
     atr_value: float = 0.0
     rsi_value: float = 50.0
-    bull_threshold: int = 110
+    bull_threshold: int = 115
 
 @dataclass
 class PricePlan:
@@ -166,11 +166,16 @@ def score_v5(
 ) -> tuple:
     """
     Returns: (prediction, total_score, signals, price_plan)
-    prediction: BULL | NEUTRAL   (BEAR removed in V6 — backtest showed 28% accuracy)
-    Max possible score: ~220
-    BULL threshold: 110
-    V7 adds S11: NEPSE market breadth gate  (addresses market-wide down weeks)
-    V7 fixes S2: direction-aware streak scoring
+    prediction: BULL | NEUTRAL
+
+    V8 signal recalibration (based on 306-prediction ablation study):
+      S6 RSI  : +11.75 correlation with hits  → BOOSTED (max 35)
+      S9 52W  : +1.0   → slightly boosted
+      S1      : +1.0   → kept
+      S4 price: -3.5   → INVERTED (below avg = bullish; was above avg = bullish)
+      S3 vol  : -4.0   → REDUCED  (high vol on green = distribution risk)
+      S7 EMA  : -4.8   → REDUCED  (trend maturity ≠ continuation)
+    Max possible score ~185.  BULL threshold 95.
     """
     w = weeks[current_idx]
     signals = SignalBreakdown()
@@ -215,7 +220,11 @@ def score_v5(
     signals.streak_count = streak
     signals.streak_dir  = sdir or "bull"
 
-    # ── S3: Volume Quality — direction-aware (max 25) ─────────────
+    # ── S3: Volume Quality (max 15, was 25) ───────────────────────
+    # Ablation: high volume on green weeks correlated with MISSES (-4.0).
+    # High volume + green can mean distribution (institutions selling into
+    # retail buying). Only reward if RSI confirms genuine accumulation.
+    # RSI is computed later so use a proxy: cap volume bonus at 15.
     vols = []
     for j in range(current_idx - 1, max(-1, current_idx - 7), -1):
         if weeks[j].volume:
@@ -223,16 +232,16 @@ def score_v5(
     med_vol = compute_median(vols) if len(vols) >= 3 else None
     week_bull = w.close >= w.open
     if med_vol and w.volume:
-        if week_bull and w.volume > med_vol * 1.2:
-            s3 = 25
+        if not week_bull and w.volume > med_vol * 1.2:
+            s3 = 0    # Distribution — red week on high volume = danger
+        elif week_bull and w.volume > med_vol * 1.2:
+            s3 = 10   # Reduced from 25: possible distribution, not confirmed
         elif week_bull and w.volume > med_vol * 0.8:
-            s3 = 12
-        elif not week_bull and w.volume > med_vol * 1.2:
-            s3 = 0   # Distribution — danger
-        else:
             s3 = 8
+        else:
+            s3 = 5
     else:
-        s3 = 12
+        s3 = 8
     signals.s3_volume = s3
 
     # ATR filter
@@ -244,14 +253,20 @@ def score_v5(
             atr_flag = True
     signals.atr_flag = atr_flag
 
-    # ── S4: Price vs 4-week average (max 20) ─────────────────────
+    # ── S4: Price vs 4-week average — INVERTED (max 15) ──────────
+    # Ablation: price ABOVE average correlated with MISSES (-3.5).
+    # Extended stocks revert; depressed stocks bounce (mean reversion).
+    # Old logic rewarded being above average — that was backwards.
     closes4 = [weeks[j].close for j in range(current_idx - 1, max(-1, current_idx - 5), -1)
                if weeks[j].close]
     if len(closes4) >= 2:
         avg4 = sum(closes4) / len(closes4)
-        s4 = 20 if w.open > avg4 * 1.03 else 10 if w.open >= avg4 * 0.97 else 0
+        if   w.open < avg4 * 0.95:  s4 = 15   # Depressed below avg → bounce candidate
+        elif w.open < avg4 * 1.00:  s4 = 8    # Slightly below → mild bullish
+        elif w.open < avg4 * 1.05:  s4 = 3    # Near avg → neutral
+        else:                       s4 = -5   # Extended above avg → reversion risk
     else:
-        s4 = 10
+        s4 = 5
     signals.s4_position = s4
 
     # ── S5: Sector sub-index direction (max 20, penalty -10) ──────
@@ -259,20 +274,26 @@ def score_v5(
     s5 = 10 if sector_dir is None else 20 if sector_dir == 1 else -10
     signals.s5_sector = s5
 
-    # ── S6: RSI (6-week) — mean-reversion signal (max 25, -15) ───
-    # NEW in V6: oversold = high score (expect bounce), overbought = penalty
+    # ── S6: RSI (6-week) — STRONGEST signal (max 35, -20) ────────
+    # Ablation: +11.75 correlation — by far the most predictive signal.
+    # Oversold stocks reliably bounce; overbought stocks reliably stall.
+    # Boosted from max 25 → 35 to reflect its dominance.
     rsi = compute_rsi(weeks, current_idx, period=6) if current_idx >= 4 else 50.0
     signals.rsi_value = rsi
-    if   rsi <= 30: s6 = 25    # Heavily oversold — strong bounce candidate
-    elif rsi <= 40: s6 = 18    # Oversold
-    elif rsi <= 50: s6 = 8     # Neutral-low
-    elif rsi <= 60: s6 = 2     # Neutral-high
-    elif rsi <= 70: s6 = -5    # Approaching overbought
-    else:           s6 = -15   # Overbought — caution on new longs
+    if   rsi <= 25: s6 = 35    # Extremely oversold — very strong bounce signal
+    elif rsi <= 35: s6 = 28    # Heavily oversold
+    elif rsi <= 45: s6 = 18    # Oversold zone
+    elif rsi <= 55: s6 = 8     # Neutral
+    elif rsi <= 65: s6 = -2    # Approaching overbought
+    elif rsi <= 72: s6 = -10   # Overbought
+    else:           s6 = -20   # Very overbought — hard gate effectively
     signals.s6_rsi = s6
 
-    # ── S7: EMA Crossover 3W vs 6W (max 20, -10) ─────────────────
-    # NEW in V6: short EMA crossing above long EMA = uptrend confirmation
+    # ── S7: EMA Crossover 3W vs 6W (max 8, -8) ───────────────────
+    # Ablation: -4.82 correlation — EMA uptrend hurts predictions.
+    # Stocks already in mature uptrends are overextended → revert.
+    # Death cross (downtrend starting) is still a useful WARNING.
+    # Reduced from max 20 → 8 to limit its noise contribution.
     closes_all = [weeks[j].close for j in range(max(0, current_idx - 8), current_idx + 1)
                   if weeks[j].close]
     ema3 = compute_ema(closes_all, 3)
@@ -283,12 +304,12 @@ def score_v5(
     if ema3 and ema6:
         cross_up   = ema3_prev and ema6_prev and ema3_prev <= ema6_prev and ema3 > ema6
         cross_down = ema3_prev and ema6_prev and ema3_prev >= ema6_prev and ema3 < ema6
-        if   cross_up:       s7 = 20   # Golden cross — strongest uptrend signal
-        elif ema3 > ema6:    s7 = 12   # Sustained uptrend
-        elif cross_down:     s7 = -10  # Death cross — trend reversal warning
-        else:                s7 = -5   # Sustained downtrend
+        if   cross_up:       s7 = 8    # Fresh crossover only (not mature uptrend)
+        elif ema3 > ema6:    s7 = 2    # Mature uptrend — minimal bonus
+        elif cross_down:     s7 = -8   # Death cross — keep the warning
+        else:                s7 = -4   # Sustained downtrend
     else:
-        s7 = 5   # Insufficient data — neutral
+        s7 = 2
     signals.s7_ema = s7
 
     # ── S8: Relative strength vs sector peers (max 15, -10) ───────
@@ -304,10 +325,16 @@ def score_v5(
         s8 = 7
     signals.s8_rel_strength = s8
 
-    # ── S9: 52-week position filter (max 10, -5) ──────────────────
+    # ── S9: 52-week position (max 15, -8) — slightly boosted ──────
+    # Ablation: +1.0 correlation. Near 52W low = bounce candidate.
+    # Strengthened to complement S6 RSI oversold signal.
     if high52 and low52 and high52 > low52:
         pos = (w.open - low52) / (high52 - low52)
-        s9 = 10 if pos < 0.3 else 5 if pos <= 0.7 else 0 if pos < 0.9 else -5
+        if   pos < 0.20: s9 = 15   # Deep in bottom 20% — strong mean reversion
+        elif pos < 0.40: s9 = 10   # Lower half
+        elif pos < 0.65: s9 = 5    # Mid range
+        elif pos < 0.85: s9 = 0    # Upper range
+        else:            s9 = -8   # Near 52W high — resistance
     else:
         s9 = 5
     signals.s9_week52 = s9
@@ -331,14 +358,16 @@ def score_v5(
         s11 = -22  # Market clearly down (≤ -2%) → strong suppression
     signals.s11_market = s11
 
-    # ── Total (max ~220) ──────────────────────────────────────────
+    # ── Total (max ~185) ──────────────────────────────────────────
     total = s1 + s2 + s3 + s4 + s5 + s6 + s7 + s8 + s9 + s10 + s11
     signals.total = total
 
-    # ── Threshold ─────────────────────────────────────────────────
-    # Fixed at 108. Dynamic lowering was creating a loophole where
-    # S11-penalised stocks (already reduced) still scraped through.
-    bull_thresh = 108
+    # ── Threshold ────────────────────────────────────────────────
+    # V8.1: Raised from 95→115 based on 516-prediction ablation.
+    # Score gap analysis: hit avg=119 vs miss avg=110.
+    # At thresh=115: 76.6% accuracy (was 63.6% at thresh=95), 43% coverage.
+    # Eliminates ~57% of false BULL signals while retaining ~70% of true hits.
+    bull_thresh = 115
     signals.bull_threshold = bull_thresh
 
     # ── Prediction (V6: BULL or NEUTRAL only) ─────────────────────
@@ -370,12 +399,15 @@ def score_v5(
 
 
 def assign_grade(score: int, pred: str) -> str:
-    """Grade on new V6 scale (max ~205)."""
+    """Grade on V8.1 scale (threshold=115, max ~185).
+    All BULL calls already have score >= 115.
+    A+ = top-tier conviction, A = strong, B = good, C = borderline.
+    """
     if pred == "NEUTRAL": return "N"
-    if score >= 145: return "A+"
-    if score >= 125: return "A"
-    if score >= 112: return "B"
-    if score >= 100: return "C"
+    if score >= 150: return "A+"
+    if score >= 135: return "A"
+    if score >= 125: return "B"
+    if score >= 115: return "C"
     return "D"
 
 
@@ -389,24 +421,31 @@ def generate_reason(signals: SignalBreakdown, pred: str, eps: float) -> str:
         return f"Score {signals.total} below BULL threshold ({signals.bull_threshold}) — no edge{mkt_note}"
     parts = []
     # Momentum
-    if signals.s1_momentum == 30: parts.append("3-week bull momentum confirmed")
+    if signals.s1_momentum >= 25: parts.append("3-week bull momentum confirmed")
     if signals.s2_streak == 0:    parts.append("⚠ Long streak — reversal risk")
-    if signals.s3_volume == 25:   parts.append("volume surge confirming move")
-    # V6 signals
-    if signals.rsi_value <= 35:   parts.append(f"RSI {signals.rsi_value} — heavily oversold, bounce due")
+    if signals.s3_volume >= 10:   parts.append("volume confirming move")
+    elif signals.s3_volume == 0 and signals.s1_momentum > 0: parts.append("⚠ distribution volume on green week")
+    # Price position (V8 inverted — depressed price = bounce candidate)
+    if signals.s4_position >= 15: parts.append("price depressed vs 4W avg — bounce setup")
+    elif signals.s4_position <= -5: parts.append("⚠ price extended above 4W avg — reversion risk")
+    # V8 RSI signal (primary driver)
+    if signals.rsi_value <= 25:   parts.append(f"RSI {signals.rsi_value} — extremely oversold, strong bounce")
+    elif signals.rsi_value <= 35: parts.append(f"RSI {signals.rsi_value} — heavily oversold, bounce due")
     elif signals.rsi_value <= 45: parts.append(f"RSI {signals.rsi_value} — oversold zone")
     elif signals.rsi_value >= 70: parts.append(f"⚠ RSI {signals.rsi_value} — overbought, caution")
-    if signals.s7_ema == 20:      parts.append("golden cross (EMA 3W crossed above 6W)")
-    elif signals.s7_ema == 12:    parts.append("EMA uptrend confirmed")
-    elif signals.s7_ema == -10:   parts.append("⚠ death cross — EMA trend reversed down")
+    if signals.s7_ema == 8:       parts.append("golden cross (EMA 3W crossed above 6W)")
+    elif signals.s7_ema == 2:     parts.append("EMA uptrend active")
+    elif signals.s7_ema == -8:    parts.append("⚠ death cross — EMA trend reversed down")
+    # 52W position (V8 — bottom favoured)
+    if signals.s9_week52 >= 15:   parts.append("near 52W low — deep value zone")
+    elif signals.s9_week52 >= 10: parts.append("lower 52W range — value area")
+    elif signals.s9_week52 <= -8: parts.append("⚠ near 52W high — resistance zone")
     # Sector / other
     if signals.s5_sector == 20:   parts.append("sector index bullish")
     if signals.s5_sector == -10:  parts.append("sector index bearish")
     if signals.s8_rel_strength == 15:  parts.append("outperforming sector peers")
     if signals.s8_rel_strength == -10: parts.append("underperforming peers — caution")
-    if signals.s9_week52 == -5:   parts.append("near 52W high — resistance zone")
     if signals.s10_monthly == 10: parts.append("Week 1 of month — liquidity boost")
     if signals.s10_monthly == -5: parts.append("Week 4 of month — tighter liquidity")
-    if signals.s11_market >= 15:  parts.append("NEPSE market strongly bullish last week")
-    if signals.s11_market <= -15: parts.append("NEPSE market down last week — caution")
+    if signals.s11_market <= -15: parts.append("⚠ NEPSE market down last week — caution")
     return " · ".join(parts) if parts else f"Score {signals.total}"

@@ -324,7 +324,7 @@ tfoot .fw-acc-cell { padding: 10px 14px; }
 <div class="tooltip-box" id="tooltip"></div>
 
 <script>
-const API = 'http://localhost:8005';
+const API = 'http://localhost:8007';
 let currentWeeks = 12;
 let btData = null;
 
@@ -366,7 +366,7 @@ function showLoading() {
     <div class="stat-card state-panel" style="grid-column:1/-1">
       <div class="spinner"></div>
       <div class="state-title">Running backtest…</div>
-      <div class="state-sub">Picking random stocks (1 per sector) and re-running V7 engine on ${currentWeeks} past weeks each. Pure calculation from cache.</div>
+      <div class="state-sub">Picking random stocks (1 per sector) and re-running V8 engine on ${currentWeeks} past weeks each. Pure calculation from cache.</div>
     </div>`;
   hide('controls'); hide('legend'); hide('tableWrap'); hide('footerNote');
 }
