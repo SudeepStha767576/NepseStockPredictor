@@ -5,7 +5,8 @@ Run: uvicorn main:app --reload --port 8000
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 import json, os
 from datetime import datetime
@@ -200,11 +201,19 @@ def get_week_label() -> str:
     friday = now + timedelta(days=days_to_friday)
     return f"Week of {now.strftime('%b %d')} → {friday.strftime('%b %d, %Y')}"
 
-# ─── API ENDPOINTS ───────────────────────────────────────────────
+# ─── STATIC HTML PAGES ───────────────────────────────────────────
 
-@app.get("/")
-def root():
-    return {"message": "NEPSE V5 Weekly Engine — call /report for this week's picks"}
+@app.get("/", response_class=FileResponse)
+def serve_index():
+    """Serve the main dashboard UI"""
+    return FileResponse("index.html")
+
+@app.get("/backtest", response_class=FileResponse)
+def serve_backtest_page():
+    """Serve the backtest UI"""
+    return FileResponse("backtest.html")
+
+# ─── API ENDPOINTS ───────────────────────────────────────────────
 
 @app.get("/report")
 def get_report(refresh: bool = False):
@@ -278,7 +287,7 @@ def log_outcome(symbol: str, predicted: str, actual: str, week: str):
     ACCURACY_FILE.write_text(json.dumps(acc, indent=2))
     return acc
 
-@app.get("/backtest")
+@app.get("/api/backtest")
 def get_backtest(weeks: int = 12, symbols: str = None):
     """
     Run walk-forward accuracy backtest for the past N weeks.

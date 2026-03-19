@@ -324,7 +324,9 @@ tfoot .fw-acc-cell { padding: 10px 14px; }
 <div class="tooltip-box" id="tooltip"></div>
 
 <script>
-const API = 'http://localhost:8007';
+const API = window.location.origin === "null" || window.location.protocol === "file:"
+  ? "http://localhost:8008"
+  : window.location.origin;
 let currentWeeks = 12;
 let btData = null;
 
@@ -347,7 +349,7 @@ async function loadBacktest(force = false) {
   try {
     // Cache-buster ensures every call re-runs the engine with fresh random stocks
     const bust = Date.now();
-    const url = `${API}/backtest?weeks=${currentWeeks}&_=${bust}`;
+    const url = `${API}/api/backtest?weeks=${currentWeeks}&_=${bust}`;
     const res = await fetch(url, { cache: 'no-store' });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     btData = await res.json();

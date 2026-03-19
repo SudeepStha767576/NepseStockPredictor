@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pip show:*)",
+      "Bash(pip install:*)",
+      "Bash(C:UsersSudipShresthaAppDataLocalPythonbinpython.exe -c \":*)",
+      "mcp__Claude_Preview__preview_start",
+      "Bash(time curl:*)",
+      "Bash(echo \"Exit: $?\")",
+      "Bash(curl -s http://localhost:8000/backtest?weeks=12)"
+    ]
+  }
+}

@@ -709,7 +709,9 @@ tbody td {
 </div><!-- end container -->
 
 <script>
-const API_BASE = "http://localhost:8007";
+const API_BASE = window.location.origin === "null" || window.location.protocol === "file:"
+  ? "http://localhost:8008"
+  : window.location.origin;
 
 // ─── LOAD REPORT ─────────────────────────────────────────────────
 async function loadReport(forceRefresh = false) {
