@@ -324,7 +324,7 @@ tfoot .fw-acc-cell { padding: 10px 14px; }
 <div class="tooltip-box" id="tooltip"></div>
 
 <script>
-const API = 'http://localhost:8004';
+const API = 'http://localhost:8005';
 let currentWeeks = 12;
 let btData = null;
 
@@ -345,8 +345,10 @@ async function loadBacktest(force = false) {
   showLoading();
 
   try {
-    const url = `${API}/backtest?weeks=${currentWeeks}`;
-    const res = await fetch(url);
+    // Cache-buster ensures every call re-runs the engine with fresh random stocks
+    const bust = Date.now();
+    const url = `${API}/backtest?weeks=${currentWeeks}&_=${bust}`;
+    const res = await fetch(url, { cache: 'no-store' });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     btData = await res.json();
     renderAll(btData);
@@ -364,7 +366,7 @@ function showLoading() {
     <div class="stat-card state-panel" style="grid-column:1/-1">
       <div class="spinner"></div>
       <div class="state-title">Running backtest…</div>
-      <div class="state-sub">Re-running V5 engine on ${currentWeeks} past weeks per stock. Pure calculation from cache — no web requests.</div>
+      <div class="state-sub">Picking random stocks (1 per sector) and re-running V7 engine on ${currentWeeks} past weeks each. Pure calculation from cache.</div>
     </div>`;
   hide('controls'); hide('legend'); hide('tableWrap'); hide('footerNote');
 }

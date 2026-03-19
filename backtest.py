@@ -15,6 +15,7 @@ Stock selection: 1 stock per sector from cached history (no new web requests).
 """
 
 import json
+import random
 from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
@@ -114,29 +115,34 @@ def compute_market_breadth_all_weeks(n_weeks: int) -> dict:
 
 def select_backtest_stocks(meta: dict, n: int = BACKTEST_STOCKS) -> list:
     """
-    Pick 1 stock per sector (EPS ≥ 0, cache exists, enough history).
-    Returns list of symbols up to n.
+    Pick 1 RANDOM stock per sector (EPS ≥ 0, cache exists, enough history).
+    Randomised on every call so each backtest run tests different stocks.
     """
-    seen: dict = {}  # sector → symbol
-
+    # Build pool: sector → [list of eligible symbols]
+    sector_pool: dict = {}
     for symbol, info in meta.items():
         sector = info.get("sector", "Others")
-        if sector in seen:
-            continue
         if info.get("eps", 0) < 0:
             continue
-        cache_path = HIST_CACHE_DIR / f"{symbol}.json"
-        if not cache_path.exists():
+        if not (HIST_CACHE_DIR / f"{symbol}.json").exists():
             continue
-        # Require at least 30 daily rows (~6 weeks) to be useful
         rows = _load_daily_rows(symbol)
         if len(rows) < 30:
             continue
-        seen[sector] = symbol
-        if len(seen) >= n:
+        sector_pool.setdefault(sector, []).append(symbol)
+
+    # Shuffle each sector's candidates, then pick one at random per sector
+    sectors = list(sector_pool.keys())
+    random.shuffle(sectors)          # random sector order too
+
+    chosen = []
+    for sector in sectors:
+        candidates = sector_pool[sector]
+        chosen.append(random.choice(candidates))   # random pick within sector
+        if len(chosen) >= n:
             break
 
-    return list(seen.values())
+    return chosen
 
 
 # ─── SINGLE-STOCK BACKTEST ────────────────────────────────────────
