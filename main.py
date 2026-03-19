@@ -253,6 +253,24 @@ def log_outcome(symbol: str, predicted: str, actual: str, week: str):
     ACCURACY_FILE.write_text(json.dumps(acc, indent=2))
     return acc
 
+@app.get("/backtest")
+def get_backtest(weeks: int = 12, symbols: str = None):
+    """
+    Run walk-forward accuracy backtest for the past N weeks.
+    Picks 1 stock per sector automatically, or pass ?symbols=UPPER,NABIL,...
+    Only uses cached history — no new web requests needed.
+    """
+    try:
+        from backtest import run_backtest
+        sym_list = (
+            [s.strip().upper() for s in symbols.split(",")]
+            if symbols else None
+        )
+        return run_backtest(symbols=sym_list, n_weeks=min(int(weeks), 24))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/health")
 def health():
     return {"status": "ok", "time": datetime.now().isoformat(), "version": "V5"}

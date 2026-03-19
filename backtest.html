@@ -1,0 +1,636 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>NEPSE V5 — Backtest Accuracy</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg:        #0a0c10;
+  --bg2:       #111318;
+  --bg3:       #171b22;
+  --border:    rgba(255,255,255,0.07);
+  --border2:   rgba(255,255,255,0.13);
+  --text:      #e8eaf0;
+  --muted:     #6b7280;
+  --bull:      #10d97e;
+  --bear:      #f84c4c;
+  --neutral:   #f59e0b;
+  --accent:    #f0c040;
+  --blue:      #4f8ef7;
+  --orange:    #f97316;
+  --mono:      'DM Mono', monospace;
+  --display:   'Syne', sans-serif;
+  --body:      'DM Sans', sans-serif;
+}
+
+/* ─── HIT COLOURS ──────────────────────────── */
+.c-bull-hit  { background: rgba(16,217,126,.18); border-color: rgba(16,217,126,.35); }
+.c-bull-miss { background: rgba(248,76,76,.18);  border-color: rgba(248,76,76,.35);  }
+.c-bear-hit  { background: rgba(79,142,247,.18); border-color: rgba(79,142,247,.35); }
+.c-bear-miss { background: rgba(249,115,22,.18); border-color: rgba(249,115,22,.35); }
+.c-neutral   { background: rgba(255,255,255,.04);border-color: rgba(255,255,255,.08);}
+.c-flat      { background: rgba(255,255,255,.02);border-color: rgba(255,255,255,.05);}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { scroll-behavior: smooth; }
+body {
+  font-family: var(--body);
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+body::before {
+  content: '';
+  position: fixed; inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");
+  pointer-events: none; z-index: 0;
+}
+
+.container { max-width: 1400px; margin: 0 auto; padding: 0 24px; position: relative; z-index: 1; }
+
+/* ─── HEADER ─────────────────────────────── */
+.header { padding: 28px 0 20px; border-bottom: 1px solid var(--border); margin-bottom: 28px; }
+.header-top { display: flex; align-items: center; justify-content: space-between; gap: 20px; flex-wrap: wrap; }
+.logo { display: flex; align-items: center; gap: 14px; }
+.logo-mark {
+  width: 40px; height: 40px; border-radius: 10px;
+  background: linear-gradient(135deg, #f0c040 0%, #f97316 100%);
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--display); font-weight: 800; font-size: 14px; color: #0a0c10;
+  letter-spacing: -.02em;
+}
+.logo-text h1 { font-family: var(--display); font-weight: 700; font-size: 18px; letter-spacing: -.02em; }
+.logo-text p  { font-size: 12px; color: var(--muted); margin-top: 2px; }
+.back-link {
+  font-family: var(--mono); font-size: 11px; color: var(--muted);
+  text-decoration: none; border: 1px solid var(--border2);
+  padding: 6px 14px; border-radius: 6px; transition: color .2s, border-color .2s;
+}
+.back-link:hover { color: var(--text); border-color: rgba(255,255,255,.3); }
+
+/* ─── SUMMARY STATS ─────────────────────── */
+.stats-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 16px; margin-bottom: 28px;
+}
+.stat-card {
+  background: var(--bg2); border: 1px solid var(--border);
+  border-radius: 12px; padding: 18px 20px;
+  display: flex; flex-direction: column; gap: 6px;
+}
+.stat-label { font-size: 11px; color: var(--muted); font-family: var(--mono); letter-spacing: .05em; text-transform: uppercase; }
+.stat-value { font-family: var(--display); font-weight: 700; font-size: 26px; letter-spacing: -.02em; }
+.stat-sub   { font-size: 11px; color: var(--muted); }
+.stat-accuracy .stat-value { color: var(--bull); }
+.stat-correct  .stat-value { color: var(--bull); }
+.stat-wrong    .stat-value { color: var(--bear); }
+.stat-period   .stat-value { font-size: 18px; color: var(--accent); }
+
+/* ─── CONTROLS ──────────────────────────── */
+.controls {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 16px; flex-wrap: wrap; margin-bottom: 20px;
+}
+.controls-left { display: flex; align-items: center; gap: 12px; }
+.ctrl-label { font-size: 12px; color: var(--muted); font-family: var(--mono); }
+.btn {
+  font-family: var(--mono); font-size: 12px; font-weight: 500;
+  padding: 8px 18px; border-radius: 8px; cursor: pointer;
+  border: 1px solid var(--border2); background: var(--bg3); color: var(--text);
+  transition: background .2s, border-color .2s; letter-spacing: .03em;
+}
+.btn:hover { background: rgba(255,255,255,.08); border-color: rgba(255,255,255,.25); }
+.btn-primary { background: rgba(240,192,64,.12); border-color: rgba(240,192,64,.35); color: var(--accent); }
+.btn-primary:hover { background: rgba(240,192,64,.22); }
+.btn-primary.loading { opacity: .6; pointer-events: none; }
+.gen-info { font-size: 11px; color: var(--muted); font-family: var(--mono); }
+
+/* ─── LEGEND ────────────────────────────── */
+.legend {
+  display: flex; align-items: center; gap: 20px; flex-wrap: wrap;
+  padding: 12px 16px; background: var(--bg2); border: 1px solid var(--border);
+  border-radius: 10px; margin-bottom: 20px;
+}
+.legend-title { font-size: 11px; color: var(--muted); font-family: var(--mono); letter-spacing: .05em; text-transform: uppercase; margin-right: 4px; }
+.leg-item { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text); }
+.leg-dot  { width: 12px; height: 12px; border-radius: 3px; border: 1px solid; flex-shrink: 0; }
+
+/* ─── TABLE WRAPPER ─────────────────────── */
+.table-wrap {
+  background: var(--bg2); border: 1px solid var(--border);
+  border-radius: 14px; overflow: hidden; margin-bottom: 32px;
+}
+.table-scroll { overflow-x: auto; }
+
+table { width: 100%; border-collapse: collapse; }
+
+/* sticky columns */
+thead th, tbody td { white-space: nowrap; }
+.col-stock  { min-width: 90px; position: sticky; left: 0; z-index: 2; background: var(--bg2); }
+.col-sector { min-width: 96px; position: sticky; left: 90px; z-index: 2; background: var(--bg2); }
+.col-acc    { min-width: 68px; position: sticky; right: 0; z-index: 2; background: var(--bg2); }
+
+/* after sticky cols: add subtle shadow */
+.col-sector::after, .col-acc::before {
+  content: '';
+  position: absolute; top: 0; bottom: 0; width: 20px; pointer-events: none;
+}
+.col-sector::after { right: -20px; background: linear-gradient(to right, rgba(17,19,24,.7), transparent); }
+.col-acc::before   { left: -20px;  background: linear-gradient(to left,  rgba(17,19,24,.7), transparent); }
+
+thead th {
+  font-family: var(--mono); font-size: 10px; font-weight: 500;
+  letter-spacing: .06em; text-transform: uppercase; color: var(--muted);
+  padding: 12px 10px; text-align: center;
+  border-bottom: 1px solid var(--border);
+}
+thead th.col-stock, thead th.col-sector { text-align: left; padding-left: 16px; }
+
+tbody tr { border-bottom: 1px solid var(--border); transition: background .15s; }
+tbody tr:last-child { border-bottom: none; }
+tbody tr:hover td { background: rgba(255,255,255,.025); }
+tbody tr:hover .col-stock,
+tbody tr:hover .col-sector,
+tbody tr:hover .col-acc  { background: rgb(20,23,30); }
+
+tbody td { padding: 0; vertical-align: middle; }
+.col-stock td, td.col-stock { padding: 0 12px 0 16px; }
+.col-sector td, td.col-sector { padding: 0 12px; }
+.col-acc td, td.col-acc { padding: 0 10px; text-align: center; }
+
+/* Stock info cell */
+.stock-symbol { font-family: var(--mono); font-weight: 500; font-size: 12px; color: var(--text); }
+.stock-name   { font-size: 10px; color: var(--muted); margin-top: 1px; }
+.sector-badge {
+  display: inline-block; font-size: 10px; font-family: var(--mono);
+  padding: 2px 8px; border-radius: 99px; border: 1px solid var(--border2);
+  background: rgba(255,255,255,.04); color: var(--muted);
+}
+
+/* Week cell */
+.week-cell {
+  width: 80px; height: 60px;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 2px;
+  border: 1px solid transparent; border-radius: 6px;
+  margin: 4px; cursor: default;
+  transition: filter .15s;
+  position: relative;
+}
+.week-cell:hover { filter: brightness(1.15); }
+
+.cell-wrap { padding: 3px 4px; }
+
+.wc-arrow  { font-size: 16px; line-height: 1; }
+.wc-ret    { font-family: var(--mono); font-size: 10px; font-weight: 500; opacity: .85; }
+.wc-score  { font-family: var(--mono); font-size: 9px; opacity: .55; }
+
+/* Accuracy cell */
+.acc-cell {
+  font-family: var(--mono); font-size: 12px; font-weight: 500;
+  padding: 0 14px;
+}
+.acc-high   { color: var(--bull); }
+.acc-mid    { color: var(--neutral); }
+.acc-low    { color: var(--bear); }
+.acc-none   { color: var(--muted); }
+
+/* Footer row */
+tfoot td {
+  font-family: var(--mono); font-size: 11px; font-weight: 500;
+  padding: 10px; text-align: center;
+  background: rgba(255,255,255,.025); border-top: 1px solid var(--border2);
+}
+tfoot td.col-stock, tfoot td.col-sector { text-align: left; padding-left: 16px; color: var(--muted); }
+tfoot .fw-acc-cell { padding: 10px 14px; }
+
+/* ─── TOOLTIP ────────────────────────────── */
+.tooltip-box {
+  position: fixed; z-index: 999;
+  background: #1e2230; border: 1px solid var(--border2);
+  border-radius: 10px; padding: 12px 14px;
+  font-size: 12px; color: var(--text);
+  pointer-events: none; opacity: 0; transition: opacity .15s;
+  max-width: 220px; box-shadow: 0 8px 32px rgba(0,0,0,.5);
+}
+.tooltip-box.visible { opacity: 1; }
+.tt-row { display: flex; justify-content: space-between; gap: 14px; margin-bottom: 4px; font-family: var(--mono); font-size: 11px; }
+.tt-row:last-child { margin-bottom: 0; }
+.tt-label { color: var(--muted); }
+.tt-val   { color: var(--text); font-weight: 500; }
+.tt-head  { font-family: var(--display); font-weight: 700; font-size: 13px; margin-bottom: 8px; border-bottom: 1px solid var(--border); padding-bottom: 6px; }
+
+/* ─── LOADING / ERROR ───────────────────── */
+.state-panel {
+  padding: 80px 24px; text-align: center;
+  display: flex; flex-direction: column; align-items: center; gap: 14px;
+}
+.spinner {
+  width: 36px; height: 36px; border-radius: 50%;
+  border: 3px solid rgba(240,192,64,.15);
+  border-top-color: var(--accent);
+  animation: spin .8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.state-title { font-family: var(--display); font-size: 16px; font-weight: 600; }
+.state-sub   { font-size: 13px; color: var(--muted); max-width: 400px; }
+
+/* ─── FOOTER NOTE ───────────────────────── */
+.footer-note {
+  text-align: center; font-size: 11px; color: var(--muted);
+  padding: 24px 0 32px; font-family: var(--mono);
+}
+</style>
+</head>
+<body>
+
+<div class="container">
+
+  <!-- HEADER -->
+  <div class="header">
+    <div class="header-top">
+      <div class="logo">
+        <div class="logo-mark">V5</div>
+        <div class="logo-text">
+          <h1>Backtest — Walk-Forward Accuracy</h1>
+          <p>12-week directional accuracy · 1 stock per sector · BULL/BEAR predictions only</p>
+        </div>
+      </div>
+      <a class="back-link" href="index.html">← Weekly Report</a>
+    </div>
+  </div>
+
+  <!-- SUMMARY STATS -->
+  <div class="stats-row" id="statsRow">
+    <div class="stat-card state-panel" style="grid-column:1/-1">
+      <div class="spinner"></div>
+      <div class="state-title">Running backtest…</div>
+      <div class="state-sub">Slicing 52 weeks of history and re-running the V5 engine for each past week. No web requests — pure calculation from cache.</div>
+    </div>
+  </div>
+
+  <!-- CONTROLS -->
+  <div class="controls" id="controls" style="display:none">
+    <div class="controls-left">
+      <span class="ctrl-label">WEEKS:</span>
+      <button class="btn" onclick="setWeeks(8)"  id="btn8">8</button>
+      <button class="btn" onclick="setWeeks(12)" id="btn12">12</button>
+      <button class="btn" onclick="setWeeks(16)" id="btn16">16</button>
+    </div>
+    <div style="display:flex;align-items:center;gap:12px">
+      <span class="gen-info" id="genInfo">—</span>
+      <button class="btn btn-primary" id="refreshBtn" onclick="loadBacktest(true)">↻ Re-run</button>
+    </div>
+  </div>
+
+  <!-- LEGEND -->
+  <div class="legend" id="legend" style="display:none">
+    <span class="legend-title">Legend</span>
+    <span class="leg-item"><span class="leg-dot c-bull-hit"></span>  BULL ✓ (went UP)</span>
+    <span class="leg-item"><span class="leg-dot c-bull-miss"></span> BULL ✗ (went DOWN)</span>
+    <span class="leg-item"><span class="leg-dot c-bear-hit"></span>  BEAR ✓ (went DOWN)</span>
+    <span class="leg-item"><span class="leg-dot c-bear-miss"></span> BEAR ✗ (went UP)</span>
+    <span class="leg-item"><span class="leg-dot c-neutral"></span>   NEUTRAL (skipped)</span>
+    <span class="leg-item"><span class="leg-dot c-flat"></span>      Flat week (&lt;0.5%)</span>
+  </div>
+
+  <!-- TABLE -->
+  <div class="table-wrap" id="tableWrap" style="display:none">
+    <div class="table-scroll">
+      <table id="btTable">
+        <thead id="btHead"></thead>
+        <tbody id="btBody"></tbody>
+        <tfoot id="btFoot"></tfoot>
+      </table>
+    </div>
+  </div>
+
+  <!-- FOOTER -->
+  <div class="footer-note" id="footerNote" style="display:none">
+    Direction accuracy only · NEUTRAL predictions excluded · Flat weeks (&lt;0.5% move) excluded from hit/miss
+    · Sector signal (S5) uses estimated calendar position
+  </div>
+
+</div><!-- /container -->
+
+<!-- TOOLTIP -->
+<div class="tooltip-box" id="tooltip"></div>
+
+<script>
+const API = 'http://localhost:8000';
+let currentWeeks = 12;
+let btData = null;
+
+/* ─── WEEK COUNT TOGGLE ───────────────── */
+function setWeeks(n) {
+  currentWeeks = n;
+  document.querySelectorAll('[id^=btn]').forEach(b => b.style.fontWeight = '400');
+  const active = document.getElementById('btn' + n);
+  if (active) active.style.fontWeight = '700';
+  loadBacktest(true);
+}
+
+/* ─── FETCH ───────────────────────────── */
+async function loadBacktest(force = false) {
+  const btn = document.getElementById('refreshBtn');
+  if (btn) { btn.classList.add('loading'); btn.textContent = '…'; }
+
+  showLoading();
+
+  try {
+    const url = `${API}/backtest?weeks=${currentWeeks}`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    btData = await res.json();
+    renderAll(btData);
+  } catch(e) {
+    showError(e.message);
+  } finally {
+    if (btn) { btn.classList.remove('loading'); btn.textContent = '↻ Re-run'; }
+  }
+}
+
+/* ─── LOADING / ERROR STATES ─────────── */
+function showLoading() {
+  const sr = document.getElementById('statsRow');
+  sr.innerHTML = `
+    <div class="stat-card state-panel" style="grid-column:1/-1">
+      <div class="spinner"></div>
+      <div class="state-title">Running backtest…</div>
+      <div class="state-sub">Re-running V5 engine on ${currentWeeks} past weeks per stock. Pure calculation from cache — no web requests.</div>
+    </div>`;
+  hide('controls'); hide('legend'); hide('tableWrap'); hide('footerNote');
+}
+
+function showError(msg) {
+  const sr = document.getElementById('statsRow');
+  sr.innerHTML = `
+    <div class="stat-card state-panel" style="grid-column:1/-1">
+      <div style="font-size:28px">⚠️</div>
+      <div class="state-title" style="color:var(--bear)">Backtest failed</div>
+      <div class="state-sub">${msg}<br><br>Make sure the backend is running: <code>python -m uvicorn main:app --port 8000</code></div>
+    </div>`;
+  hide('controls'); hide('legend'); hide('tableWrap'); hide('footerNote');
+}
+
+function hide(id) { const el = document.getElementById(id); if(el) el.style.display='none'; }
+function show(id, d='') { const el = document.getElementById(id); if(el) el.style.display = d||''; }
+
+/* ─── ACCURACY COLOUR ────────────────── */
+function accClass(v) {
+  if (v == null) return 'acc-none';
+  if (v >= 70)   return 'acc-high';
+  if (v >= 50)   return 'acc-mid';
+  return 'acc-low';
+}
+function accStr(v) { return v == null ? '—' : v + '%'; }
+
+/* ─── CELL HELPERS ────────────────────── */
+function cellClass(row) {
+  if (!row) return 'c-flat';
+  const p = row.predicted, h = row.hit, ad = row.actual_direction;
+  if (ad === 'FLAT') return 'c-flat';
+  if (p === 'NEUTRAL') return 'c-neutral';
+  if (h === true  && p === 'BULL') return 'c-bull-hit';
+  if (h === false && p === 'BULL') return 'c-bull-miss';
+  if (h === true  && p === 'BEAR') return 'c-bear-hit';
+  if (h === false && p === 'BEAR') return 'c-bear-miss';
+  return 'c-neutral';
+}
+
+function cellArrow(row) {
+  if (!row) return '·';
+  if (row.predicted === 'BULL') return '▲';
+  if (row.predicted === 'BEAR') return '▼';
+  return '→';
+}
+
+function cellArrowColor(row) {
+  if (!row) return 'var(--muted)';
+  if (row.predicted === 'BULL') return 'var(--bull)';
+  if (row.predicted === 'BEAR') return 'var(--bear)';
+  return 'var(--muted)';
+}
+
+function retStr(v) {
+  if (v == null) return '';
+  const s = v > 0 ? '+' : '';
+  return s + v.toFixed(1) + '%';
+}
+
+function retColor(v) {
+  if (v == null) return 'var(--muted)';
+  if (v > 0.5)   return 'var(--bull)';
+  if (v < -0.5)  return 'var(--bear)';
+  return 'var(--muted)';
+}
+
+/* ─── RENDER ─────────────────────────── */
+function renderAll(data) {
+  renderStats(data);
+  renderTable(data);
+
+  // Controls + legend
+  show('controls', 'flex');
+  show('legend',   'flex');
+  show('tableWrap');
+  show('footerNote');
+
+  const genDate = data.generated_at ? new Date(data.generated_at) : new Date();
+  const gi = document.getElementById('genInfo');
+  if (gi) gi.textContent = `Generated ${genDate.toLocaleTimeString()}`;
+
+  // Mark active weeks button
+  document.querySelectorAll('[id^=btn]').forEach(b => b.style.fontWeight='400');
+  const a = document.getElementById('btn' + data.n_weeks);
+  if (a) a.style.fontWeight = '700';
+}
+
+function renderStats(data) {
+  const sr = document.getElementById('statsRow');
+  const pct = data.overall_accuracy;
+  const acColor = pct >= 70 ? 'var(--bull)' : pct >= 50 ? 'var(--neutral)' : 'var(--bear)';
+
+  sr.innerHTML = `
+    <div class="stat-card stat-accuracy">
+      <div class="stat-label">Overall Accuracy</div>
+      <div class="stat-value" style="color:${acColor}">${pct}%</div>
+      <div class="stat-sub">Directional predictions only</div>
+    </div>
+    <div class="stat-card stat-correct">
+      <div class="stat-label">Correct</div>
+      <div class="stat-value">${data.total_correct}</div>
+      <div class="stat-sub">of ${data.total_predictions} predictions</div>
+    </div>
+    <div class="stat-card stat-wrong">
+      <div class="stat-label">Wrong</div>
+      <div class="stat-value">${data.total_wrong}</div>
+      <div class="stat-sub">missed direction calls</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Stocks Tested</div>
+      <div class="stat-value" style="color:var(--accent)">${data.n_stocks}</div>
+      <div class="stat-sub">1 per sector</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Period</div>
+      <div class="stat-value" style="font-size:18px;color:var(--accent)">${data.n_weeks}W</div>
+      <div class="stat-sub">walk-forward backtest</div>
+    </div>`;
+}
+
+function renderTable(data) {
+  const nw     = data.n_weeks;
+  const stocks = data.stocks;
+  const perWk  = data.per_week_accuracy || {};
+
+  /* ── HEAD ── */
+  const head = document.getElementById('btHead');
+  let headHtml = '<tr>';
+  headHtml += '<th class="col-stock">Stock</th>';
+  headHtml += '<th class="col-sector">Sector</th>';
+
+  // Columns: W-12 → W-1 (oldest left, newest right)
+  for (let wb = nw; wb >= 1; wb--) {
+    const lbl = weekLabel(stocks, wb);
+    headHtml += `<th title="Week ${wb} back">${lbl || ('W-' + wb)}</th>`;
+  }
+  headHtml += '<th class="col-acc">Acc%</th>';
+  headHtml += '</tr>';
+  head.innerHTML = headHtml;
+
+  /* ── BODY ── */
+  const body = document.getElementById('btBody');
+  let bodyHtml = '';
+
+  stocks.forEach(stock => {
+    const wMap = {};
+    (stock.weeks || []).forEach(r => { wMap[r.week_back] = r; });
+
+    bodyHtml += '<tr>';
+    bodyHtml += `<td class="col-stock" style="height:60px">
+      <div class="stock-symbol">${stock.symbol}</div>
+      <div class="stock-name">${shortName(stock.name)}</div>
+    </td>`;
+    bodyHtml += `<td class="col-sector"><span class="sector-badge">${stock.sector}</span></td>`;
+
+    for (let wb = nw; wb >= 1; wb--) {
+      const row   = wMap[wb] || null;
+      const cls   = cellClass(row);
+      const arrow = row ? cellArrow(row) : '·';
+      const arrowC= row ? cellArrowColor(row) : 'var(--muted)';
+      const ret   = row ? retStr(row.actual_return_pct) : '';
+      const retC  = row ? retColor(row.actual_return_pct) : 'var(--muted)';
+      const score = row ? row.score : '';
+      const ttIdx = row ? buildTooltipData(stock, row) : '';
+
+      bodyHtml += `<td>
+        <div class="cell-wrap" ${ttIdx ? `data-tt="${ttIdx}"` : ''}
+             onmouseenter="showTip(event,${ttIdx?`'${ttIdx}'`:'null'})"
+             onmouseleave="hideTip()">
+          <div class="week-cell ${cls}">
+            <div class="wc-arrow" style="color:${arrowC}">${arrow}</div>
+            <div class="wc-ret"  style="color:${retC}">${ret}</div>
+            ${score !== '' ? `<div class="wc-score">${score}</div>` : ''}
+          </div>
+        </div>
+      </td>`;
+    }
+
+    const aStr = accStr(stock.accuracy);
+    const aCls = accClass(stock.accuracy);
+    bodyHtml += `<td class="col-acc"><span class="acc-cell ${aCls}">${aStr}</span></td>`;
+    bodyHtml += '</tr>';
+  });
+
+  body.innerHTML = bodyHtml;
+
+  /* ── FOOT ── */
+  const foot = document.getElementById('btFoot');
+  let footHtml = '<tr>';
+  footHtml += '<td class="col-stock">Per-week</td>';
+  footHtml += '<td class="col-sector"></td>';
+
+  for (let wb = nw; wb >= 1; wb--) {
+    const v   = perWk[String(wb)];
+    const cls = accClass(v);
+    footHtml += `<td class="fw-acc-cell"><span class="acc-cell ${cls}">${accStr(v)}</span></td>`;
+  }
+
+  const total = data.overall_accuracy;
+  footHtml += `<td class="col-acc fw-acc-cell"><span class="acc-cell ${accClass(total)}">${accStr(total)}</span></td>`;
+  footHtml += '</tr>';
+  foot.innerHTML = footHtml;
+}
+
+/* ─── TOOLTIP DATA ────────────────────── */
+const ttStore = {};
+let ttCount = 0;
+
+function buildTooltipData(stock, row) {
+  const key = 'tt_' + (++ttCount);
+  ttStore[key] = { stock, row };
+  return key;
+}
+
+function showTip(e, key) {
+  if (!key) return;
+  const d = ttStore[key];
+  if (!d) return;
+  const { stock, row } = d;
+
+  const predColor = row.predicted === 'BULL' ? 'var(--bull)' : row.predicted === 'BEAR' ? 'var(--bear)' : 'var(--muted)';
+  const hitStr    = row.hit === true ? '✓ HIT' : row.hit === false ? '✗ MISS' : '— (flat/neutral)';
+  const hitColor  = row.hit === true ? 'var(--bull)' : row.hit === false ? 'var(--bear)' : 'var(--muted)';
+
+  document.getElementById('tooltip').innerHTML = `
+    <div class="tt-head">${stock.symbol} · ${row.week_label}</div>
+    <div class="tt-row"><span class="tt-label">Predicted</span><span class="tt-val" style="color:${predColor}">${row.predicted} (${row.predicted_direction})</span></div>
+    <div class="tt-row"><span class="tt-label">Score</span><span class="tt-val">${row.score}</span></div>
+    <div class="tt-row"><span class="tt-label">Entry price</span><span class="tt-val">${row.entry_price}</span></div>
+    <div class="tt-row"><span class="tt-label">Actual open</span><span class="tt-val">${row.actual_open}</span></div>
+    <div class="tt-row"><span class="tt-label">Actual close</span><span class="tt-val">${row.actual_close}</span></div>
+    <div class="tt-row"><span class="tt-label">Actual return</span><span class="tt-val" style="color:${retColor(row.actual_return_pct)}">${retStr(row.actual_return_pct)}</span></div>
+    <div class="tt-row"><span class="tt-label">Result</span><span class="tt-val" style="color:${hitColor}">${hitStr}</span></div>`;
+  positionTip(e);
+}
+
+function positionTip(e) {
+  const tip = document.getElementById('tooltip');
+  tip.classList.add('visible');
+  const x = e.clientX + 16, y = e.clientY + 12;
+  const tw = tip.offsetWidth, th = tip.offsetHeight;
+  tip.style.left = (x + tw > window.innerWidth  ? x - tw - 24 : x) + 'px';
+  tip.style.top  = (y + th > window.innerHeight ? y - th - 12 : y) + 'px';
+}
+
+function hideTip() {
+  document.getElementById('tooltip').classList.remove('visible');
+}
+
+/* ─── HELPERS ─────────────────────────── */
+function weekLabel(stocks, wb) {
+  for (const s of stocks) {
+    const r = (s.weeks || []).find(x => x.week_back === wb);
+    if (r && r.week_label) return r.week_label;
+  }
+  return null;
+}
+
+function shortName(n) {
+  if (!n) return '';
+  return n.length > 18 ? n.slice(0, 17) + '…' : n;
+}
+
+/* ─── INIT ────────────────────────────── */
+loadBacktest();
+</script>
+</body>
+</html>
