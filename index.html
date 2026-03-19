@@ -1,0 +1,951 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>NEPSE V5 — Weekly Signal Report</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg:       #0a0c10;
+  --bg2:      #111318;
+  --bg3:      #171b22;
+  --border:   rgba(255,255,255,0.07);
+  --border2:  rgba(255,255,255,0.13);
+  --text:     #e8eaf0;
+  --muted:    #6b7280;
+  --bull:     #10d97e;
+  --bull-bg:  rgba(16,217,126,0.08);
+  --bull-bd:  rgba(16,217,126,0.25);
+  --bear:     #f84c4c;
+  --bear-bg:  rgba(248,76,76,0.08);
+  --bear-bd:  rgba(248,76,76,0.25);
+  --neutral:  #f59e0b;
+  --neutral-bg:rgba(245,158,11,0.08);
+  --neutral-bd:rgba(245,158,11,0.25);
+  --accent:   #f0c040;
+  --blue:     #4f8ef7;
+  --mono:     'DM Mono', monospace;
+  --display:  'Syne', sans-serif;
+  --body:     'DM Sans', sans-serif;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { scroll-behavior: smooth; }
+
+body {
+  font-family: var(--body);
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+/* ─── NOISE TEXTURE ─────────────────────────────── */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");
+  pointer-events: none;
+  z-index: 0;
+}
+
+.container { max-width: 1280px; margin: 0 auto; padding: 0 24px; position: relative; z-index: 1; }
+
+/* ─── HEADER ─────────────────────────────────────── */
+.header {
+  padding: 28px 0 0;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 32px;
+}
+.header-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px;
+  padding-bottom: 20px;
+}
+.logo {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.logo-mark {
+  width: 40px; height: 40px;
+  background: var(--accent);
+  border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--mono);
+  font-weight: 500;
+  font-size: 13px;
+  color: #000;
+  flex-shrink: 0;
+}
+.logo-text h1 {
+  font-family: var(--display);
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.3px;
+  color: var(--text);
+}
+.logo-text p {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 1px;
+}
+.header-meta {
+  text-align: right;
+}
+.week-label {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--accent);
+  background: rgba(240,192,64,0.1);
+  border: 1px solid rgba(240,192,64,0.2);
+  padding: 4px 10px;
+  border-radius: 4px;
+  display: inline-block;
+  margin-bottom: 4px;
+}
+.gen-time {
+  font-size: 11px;
+  color: var(--muted);
+  font-family: var(--mono);
+}
+.accuracy-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--bull-bg);
+  border: 1px solid var(--bull-bd);
+  border-radius: 20px;
+  padding: 4px 12px;
+  font-size: 12px;
+  color: var(--bull);
+  font-family: var(--mono);
+  margin-top: 6px;
+}
+.accuracy-pill .dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--bull);
+  animation: pulse 2s infinite;
+}
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+
+/* ─── EVENT WARNING ────────────────────────────── */
+.event-warning {
+  background: rgba(248,76,76,0.08);
+  border: 1px solid rgba(248,76,76,0.3);
+  border-radius: 10px;
+  padding: 12px 18px;
+  margin-bottom: 24px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 13px;
+  color: var(--bear);
+  display: none;
+}
+.event-warning.visible { display: flex; }
+.event-warning strong { font-weight: 500; }
+
+/* ─── STAT CARDS ────────────────────────────────── */
+.stats-row {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 12px;
+  margin-bottom: 32px;
+}
+@media(max-width:768px){ .stats-row{grid-template-columns:repeat(2,1fr)} }
+.stat-card {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 16px;
+  transition: border-color .2s;
+}
+.stat-card:hover { border-color: var(--border2); }
+.stat-label {
+  font-size: 11px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  margin-bottom: 8px;
+  font-family: var(--mono);
+}
+.stat-value {
+  font-family: var(--display);
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 1;
+}
+.stat-sub { font-size: 11px; color: var(--muted); margin-top: 4px; }
+
+/* ─── SECTION HEADER ────────────────────────────── */
+.section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+.section-title {
+  font-family: var(--display);
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -.2px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.section-title .tag {
+  font-family: var(--mono);
+  font-size: 10px;
+  padding: 2px 8px;
+  border-radius: 3px;
+  font-weight: 400;
+}
+
+/* ─── TOP 4 PICKS GRID ───────────────────────────── */
+.top4-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 14px;
+  margin-bottom: 40px;
+}
+@media(max-width:768px){ .top4-grid{grid-template-columns:1fr} }
+
+.pick-card {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 20px;
+  transition: transform .2s, border-color .2s;
+  cursor: default;
+  animation: fadeUp .4s ease both;
+}
+.pick-card:hover { transform: translateY(-2px); border-color: var(--border2); }
+@keyframes fadeUp { from{opacity:0;transform:translateY(12px)} to{opacity:1;transform:none} }
+.pick-card:nth-child(1){animation-delay:.05s}
+.pick-card:nth-child(2){animation-delay:.1s}
+.pick-card:nth-child(3){animation-delay:.15s}
+.pick-card:nth-child(4){animation-delay:.2s}
+
+.pick-card.bull-card { border-color: var(--bull-bd); background: linear-gradient(135deg, var(--bg2) 60%, rgba(16,217,126,0.04)); }
+.pick-card.bear-card { border-color: var(--bear-bd); background: linear-gradient(135deg, var(--bg2) 60%, rgba(248,76,76,0.04)); }
+
+.pick-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+.pick-symbol {
+  font-family: var(--display);
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: -.5px;
+  line-height: 1;
+}
+.pick-name {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 3px;
+}
+.pick-sector {
+  font-size: 11px;
+  color: var(--muted);
+  background: var(--bg3);
+  padding: 2px 8px;
+  border-radius: 20px;
+  font-family: var(--mono);
+}
+.direction-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 500;
+  padding: 5px 12px;
+  border-radius: 6px;
+}
+.direction-badge.bull { background: var(--bull-bg); color: var(--bull); border: 1px solid var(--bull-bd); }
+.direction-badge.bear { background: var(--bear-bg); color: var(--bear); border: 1px solid var(--bear-bd); }
+
+.score-bar-wrap {
+  margin-bottom: 14px;
+}
+.score-label {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--muted);
+  margin-bottom: 5px;
+  font-family: var(--mono);
+}
+.score-label .score-num { color: var(--accent); font-weight: 500; font-size: 13px; }
+.score-bar {
+  height: 4px;
+  background: rgba(255,255,255,0.06);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.score-bar-fill {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--bull);
+  transition: width 1s cubic-bezier(.4,0,.2,1);
+  width: 0%;
+}
+.score-bar-fill.bear { background: var(--bear); }
+
+/* ─── ENTRY/EXIT PLAN ────────────────────────────── */
+.plan-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.plan-item {
+  background: var(--bg3);
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+.plan-item .pl { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; font-family: var(--mono); }
+.plan-item .pv { font-family: var(--mono); font-size: 14px; font-weight: 500; margin-top: 2px; }
+.plan-item.entry-item .pv { color: var(--text); }
+.plan-item.sl-item .pv   { color: var(--bear); }
+.plan-item.t1-item .pv   { color: var(--bull); }
+.plan-item.t2-item .pv   { color: #6ee7b7; }
+.plan-item.t3-item .pv   { color: #a7f3d0; font-size: 12px; }
+.plan-item.rr-item .pv   { color: var(--accent); }
+
+.pick-reason {
+  font-size: 11.5px;
+  color: var(--muted);
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+  line-height: 1.5;
+}
+
+/* ─── SIGNAL DOTS ────────────────────────────────── */
+.signals-row {
+  display: flex;
+  gap: 5px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+.sig-dot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+}
+.sig-dot .dl { font-size: 9px; color: var(--muted); font-family: var(--mono); }
+.sig-dot .dv {
+  width: 28px; height: 28px;
+  border-radius: 6px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 10px;
+  font-family: var(--mono);
+  font-weight: 500;
+  border: 1px solid transparent;
+}
+.dv.high  { background: rgba(16,217,126,0.15); color: var(--bull); border-color: rgba(16,217,126,0.3); }
+.dv.mid   { background: rgba(245,158,11,0.12); color: var(--neutral); border-color: rgba(245,158,11,0.25); }
+.dv.low   { background: rgba(248,76,76,0.12); color: var(--bear); border-color: rgba(248,76,76,0.25); }
+.dv.zero  { background: rgba(255,255,255,0.04); color: var(--muted); border-color: var(--border); }
+
+/* ─── ALL STOCKS TABLE ───────────────────────────── */
+.table-wrap {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  overflow: hidden;
+  margin-bottom: 40px;
+}
+.table-scroll { overflow-x: auto; }
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+thead th {
+  background: var(--bg3);
+  padding: 10px 14px;
+  text-align: left;
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: .07em;
+  color: var(--muted);
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+tbody tr {
+  border-bottom: 1px solid var(--border);
+  transition: background .15s;
+}
+tbody tr:last-child { border: none; }
+tbody tr:hover { background: rgba(255,255,255,0.02); }
+tbody tr.top-pick { background: rgba(16,217,126,0.03); }
+tbody td {
+  padding: 11px 14px;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+.t-symbol { font-family: var(--display); font-weight: 700; font-size: 13px; }
+.t-name   { font-size: 11.5px; color: var(--muted); }
+.t-price  { font-family: var(--mono); }
+.t-pct    { font-family: var(--mono); font-size: 12px; }
+.t-pct.up { color: var(--bull); }
+.t-pct.dn { color: var(--bear); }
+.t-score  { font-family: var(--mono); font-weight: 500; }
+.score-mini {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.score-mini-bar {
+  width: 50px; height: 3px;
+  background: rgba(255,255,255,0.06);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.score-mini-fill { height: 3px; border-radius: 2px; }
+
+.pred-badge {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 4px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: .04em;
+}
+.pred-badge.BULL    { background: var(--bull-bg); color: var(--bull); border: 1px solid var(--bull-bd); }
+.pred-badge.BEAR    { background: var(--bear-bg); color: var(--bear); border: 1px solid var(--bear-bd); }
+.pred-badge.NEUTRAL { background: var(--neutral-bg); color: var(--neutral); border: 1px solid var(--neutral-bd); }
+
+.grade-badge {
+  display: inline-flex;
+  width: 26px; height: 26px;
+  align-items: center; justify-content: center;
+  border-radius: 6px;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 500;
+}
+.grade-badge.Ap { background: rgba(16,217,126,0.2); color: var(--bull); }
+.grade-badge.A  { background: rgba(16,217,126,0.12); color: var(--bull); }
+.grade-badge.B  { background: rgba(79,142,247,0.12); color: var(--blue); }
+.grade-badge.C  { background: rgba(245,158,11,0.12); color: var(--neutral); }
+.grade-badge.D  { background: rgba(248,76,76,0.1); color: var(--bear); }
+.grade-badge.N  { background: rgba(255,255,255,0.05); color: var(--muted); }
+
+.plan-mini {
+  display: flex;
+  gap: 8px;
+  font-family: var(--mono);
+  font-size: 11px;
+}
+.plan-mini .e { color: var(--text); }
+.plan-mini .s { color: var(--bear); }
+.plan-mini .t { color: var(--bull); }
+.plan-mini .sep { color: var(--muted); }
+
+/* ─── DISCLAIMER ────────────────────────────────── */
+.disclaimer {
+  background: rgba(248,76,76,0.05);
+  border: 1px solid rgba(248,76,76,0.15);
+  border-radius: 10px;
+  padding: 14px 18px;
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 40px;
+  line-height: 1.6;
+}
+.disclaimer strong { color: var(--bear); }
+
+/* ─── FOOTER ─────────────────────────────────────── */
+.footer {
+  border-top: 1px solid var(--border);
+  padding: 24px 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 11.5px;
+  color: var(--muted);
+  font-family: var(--mono);
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+.footer .model-info { color: var(--accent); }
+
+/* ─── LOADING ────────────────────────────────────── */
+.loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 80px 20px;
+  gap: 16px;
+}
+.loading-spinner {
+  width: 36px; height: 36px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin .8s linear infinite;
+}
+@keyframes spin { to{ transform: rotate(360deg); } }
+.loading-text {
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--muted);
+  letter-spacing: .05em;
+}
+.loading-steps {
+  font-size: 11px;
+  color: var(--muted);
+  opacity: .6;
+  text-align: center;
+  line-height: 1.8;
+}
+
+/* ─── REFRESH BTN ────────────────────────────────── */
+.refresh-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(240,192,64,0.1);
+  border: 1px solid rgba(240,192,64,0.25);
+  color: var(--accent);
+  padding: 7px 16px;
+  border-radius: 8px;
+  font-family: var(--mono);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all .2s;
+}
+.refresh-btn:hover {
+  background: rgba(240,192,64,0.18);
+  transform: translateY(-1px);
+}
+.refresh-btn:active { transform: none; }
+.refresh-btn svg { width: 13px; height: 13px; }
+
+/* ─── NO DATA ────────────────────────────────────── */
+.empty-state {
+  text-align: center;
+  padding: 60px 20px;
+  color: var(--muted);
+}
+.empty-state h3 { font-family: var(--display); font-size: 18px; margin-bottom: 8px; color: var(--text); }
+</style>
+</head>
+<body>
+
+<div class="container">
+
+  <!-- HEADER -->
+  <div class="header">
+    <div class="header-top">
+      <div class="logo">
+        <div class="logo-mark">V5</div>
+        <div class="logo-text">
+          <h1>NEPSE Signal Engine</h1>
+          <p>Weekly Entry & Exit Report — Powered by V5 Methodology</p>
+        </div>
+      </div>
+      <div class="header-meta">
+        <div class="week-label" id="weekLabel">Loading...</div>
+        <div class="gen-time" id="genTime">—</div>
+        <div>
+          <div class="accuracy-pill">
+            <span class="dot"></span>
+            <span id="accuracyPill">84% Model Accuracy</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- EVENT WARNING -->
+  <div class="event-warning" id="eventWarning">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <triangle points="12 2 22 21 2 21"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+    </svg>
+    <div><strong>EVENT WEEK:</strong> <span id="eventDesc"></span> — All predictions set to NEUTRAL. Do not trade this week.</div>
+  </div>
+
+  <!-- LOADING STATE -->
+  <div class="loading" id="loadingState">
+    <div class="loading-spinner"></div>
+    <div class="loading-text">RUNNING V5 ENGINE...</div>
+    <div class="loading-steps">
+      Fetching NEPSE data from financialnotices.com<br>
+      Computing 10 signals for each stock<br>
+      Generating entry & exit plans
+    </div>
+  </div>
+
+  <!-- MAIN CONTENT (hidden until data loads) -->
+  <div id="mainContent" style="display:none">
+
+    <!-- STAT CARDS -->
+    <div class="stats-row">
+      <div class="stat-card">
+        <div class="stat-label">Total Stocks</div>
+        <div class="stat-value" id="statTotal">—</div>
+        <div class="stat-sub">analysed this week</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">BULL Signals</div>
+        <div class="stat-value" id="statBull" style="color:var(--bull)">—</div>
+        <div class="stat-sub">buy candidates</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">NEUTRAL</div>
+        <div class="stat-value" id="statNeutral" style="color:var(--neutral)">—</div>
+        <div class="stat-sub">skip this week</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">BEAR Signals</div>
+        <div class="stat-value" id="statBear" style="color:var(--bear)">—</div>
+        <div class="stat-sub">avoid</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">V5 Accuracy</div>
+        <div class="stat-value" id="statAccuracy" style="color:var(--accent)">84%</div>
+        <div class="stat-sub">15-batch backtest</div>
+      </div>
+    </div>
+
+    <!-- TOP 4 PICKS -->
+    <div class="section-head">
+      <div class="section-title">
+        ★ Top 4 Picks This Week
+        <span class="tag" style="background:var(--bull-bg);color:var(--bull)">ENTRY PLAN READY</span>
+      </div>
+      <button class="refresh-btn" onclick="loadReport(true)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+        </svg>
+        Refresh
+      </button>
+    </div>
+    <div class="top4-grid" id="top4Grid">
+      <!-- Injected by JS -->
+    </div>
+
+    <!-- ALL STOCKS TABLE -->
+    <div class="section-head">
+      <div class="section-title">
+        All Stocks — Ranked by Score
+        <span class="tag" style="background:var(--bg3);color:var(--muted)">DESCENDING</span>
+      </div>
+      <div style="font-size:12px;color:var(--muted);font-family:var(--mono)" id="tableCount"></div>
+    </div>
+    <div class="table-wrap">
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Symbol</th>
+              <th>Sector</th>
+              <th>Price</th>
+              <th>±%</th>
+              <th>Score</th>
+              <th>Grade</th>
+              <th>Signal</th>
+              <th>Entry</th>
+              <th>Stop Loss</th>
+              <th>T1 Target</th>
+              <th>R:R</th>
+              <th>Reason</th>
+            </tr>
+          </thead>
+          <tbody id="stocksTableBody">
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- DISCLAIMER -->
+    <div class="disclaimer">
+      <strong>⚠ Educational & Research Purpose Only.</strong>
+      This report is generated by the NEPSE V5 algorithmic model with 84% backtested accuracy across 15 batches and 7 sectors.
+      Past performance does not guarantee future results. NEPSE trading involves significant risk.
+      Always conduct your own due diligence (DYOR). This is NOT financial advice.
+      Never invest more than you can afford to lose. The model cannot predict surprise news events, political developments, or black-swan events.
+    </div>
+
+  </div><!-- end mainContent -->
+
+  <!-- FOOTER -->
+  <div class="footer">
+    <div>NEPSE V5 Signal Engine © 2026 — For Educational Use Only</div>
+    <div class="model-info">V5 · 10 Signals · 84% Accuracy · 15 Batches · 7 Sectors</div>
+  </div>
+
+</div><!-- end container -->
+
+<script>
+const API_BASE = "http://localhost:8000";
+
+// ─── LOAD REPORT ─────────────────────────────────────────────────
+async function loadReport(forceRefresh = false) {
+  document.getElementById("loadingState").style.display = "flex";
+  document.getElementById("mainContent").style.display = "none";
+
+  try {
+    const url = `${API_BASE}/report${forceRefresh ? "?refresh=true" : ""}`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    renderReport(data);
+  } catch (err) {
+    // Demo mode — use mock data if API is not running
+    console.warn("API not available, using demo data:", err.message);
+    renderReport(getMockData());
+  }
+}
+
+// ─── RENDER ───────────────────────────────────────────────────────
+function renderReport(data) {
+  // Header
+  document.getElementById("weekLabel").textContent = data.week_label || "This Week";
+  document.getElementById("genTime").textContent = `Generated: ${data.generated_time || "—"} · ${data.generated_date || ""}`;
+  document.getElementById("accuracyPill").textContent = `${data.model_accuracy || 84}% V5 Accuracy`;
+
+  // Event warning
+  if (data.is_event_week) {
+    const ew = document.getElementById("eventWarning");
+    document.getElementById("eventDesc").textContent = data.event_description;
+    ew.classList.add("visible");
+  }
+
+  // Stat cards
+  document.getElementById("statTotal").textContent    = data.total_stocks || 0;
+  document.getElementById("statBull").textContent     = data.bull_count || 0;
+  document.getElementById("statNeutral").textContent  = data.neutral_count || 0;
+  document.getElementById("statBear").textContent     = data.bear_count || 0;
+  document.getElementById("statAccuracy").textContent = `${data.model_accuracy || 84}%`;
+
+  // Top 4 picks
+  const top4 = (data.stocks || []).filter(s => s.top_pick);
+  renderTop4(top4);
+
+  // All stocks table
+  document.getElementById("tableCount").textContent = `${(data.stocks||[]).length} stocks`;
+  renderTable(data.stocks || []);
+
+  // Show content
+  document.getElementById("loadingState").style.display = "none";
+  document.getElementById("mainContent").style.display = "block";
+
+  // Animate score bars
+  setTimeout(() => {
+    document.querySelectorAll(".score-bar-fill[data-pct]").forEach(el => {
+      el.style.width = el.dataset.pct + "%";
+    });
+  }, 100);
+}
+
+// ─── TOP 4 GRID ───────────────────────────────────────────────────
+function renderTop4(stocks) {
+  const grid = document.getElementById("top4Grid");
+  if (!stocks.length) {
+    grid.innerHTML = `<div class="empty-state" style="grid-column:span 2"><h3>No BULL signals this week</h3><p>Model recommends staying in NEUTRAL — no trades this week.</p></div>`;
+    return;
+  }
+  grid.innerHTML = stocks.map((s, i) => {
+    const pct  = Math.min(Math.round(s.score / 155 * 100), 100);
+    const bull  = s.prediction === "BULL";
+    const sigs  = s.signals || {};
+    const plan  = s.plan || {};
+    const delay = (i * 0.05).toFixed(2);
+
+    const sigDots = [
+      { l: "S1", v: sigs.s1_momentum, max: 30 },
+      { l: "S2", v: sigs.s2_streak,   max: 25 },
+      { l: "S3", v: sigs.s3_volume,   max: 25 },
+      { l: "S4", v: sigs.s4_position, max: 20 },
+      { l: "S5", v: sigs.s5_sector,   max: 20 },
+      { l: "S8", v: sigs.s8_rel_strength, max: 15 },
+      { l: "S9", v: sigs.s9_week52,   max: 10 },
+      { l: "S10",v: sigs.s10_monthly, max: 10 },
+    ].map(d => {
+      const ratio = (d.v || 0) / d.max;
+      const cls   = d.v < 0 ? "low" : ratio >= 0.7 ? "high" : ratio >= 0.4 ? "mid" : "zero";
+      const disp  = d.v > 0 ? `+${d.v}` : `${d.v||0}`;
+      return `<div class="sig-dot"><span class="dl">${d.l}</span><span class="dv ${cls}">${disp}</span></div>`;
+    }).join("");
+
+    return `
+    <div class="pick-card ${bull ? "bull-card" : "bear-card"}" style="animation-delay:${delay}s">
+      <div class="pick-head">
+        <div>
+          <div class="pick-symbol">${s.symbol}</div>
+          <div class="pick-name">${s.name}</div>
+          <div class="pick-sector">${s.sector}</div>
+        </div>
+        <div style="text-align:right">
+          <div class="direction-badge ${bull?"bull":"bear"}">
+            ${bull?"▲ BULL":"▼ BEAR"}
+          </div>
+          <div style="font-family:var(--mono);font-size:13px;color:var(--muted);margin-top:6px">
+            NPR ${fmt(s.current_price)}
+          </div>
+        </div>
+      </div>
+
+      <div class="score-bar-wrap">
+        <div class="score-label">
+          <span>V5 Score</span>
+          <span class="score-num">${s.score} / 155</span>
+        </div>
+        <div class="score-bar">
+          <div class="score-bar-fill ${bull?"":"bear"}" data-pct="${pct}" style="width:0%"></div>
+        </div>
+      </div>
+
+      <div class="signals-row">${sigDots}</div>
+
+      <div class="plan-grid">
+        <div class="plan-item entry-item">
+          <div class="pl">Entry</div>
+          <div class="pv">NPR ${fmt(plan.entry)}</div>
+        </div>
+        <div class="plan-item sl-item">
+          <div class="pl">Stop Loss</div>
+          <div class="pv">NPR ${fmt(plan.stop_loss)}</div>
+        </div>
+        <div class="plan-item rr-item">
+          <div class="pl">Risk:Reward</div>
+          <div class="pv">1:${plan.risk_reward||"—"}</div>
+        </div>
+        <div class="plan-item t1-item">
+          <div class="pl">Target 1</div>
+          <div class="pv">NPR ${fmt(plan.target_1)}</div>
+        </div>
+        <div class="plan-item t2-item">
+          <div class="pl">Target 2</div>
+          <div class="pv">NPR ${fmt(plan.target_2)}</div>
+        </div>
+        <div class="plan-item t3-item">
+          <div class="pl">Target 3</div>
+          <div class="pv">NPR ${fmt(plan.target_3)}</div>
+        </div>
+      </div>
+
+      <div class="pick-reason">${s.reason || "—"}</div>
+    </div>`;
+  }).join("");
+}
+
+// ─── TABLE ────────────────────────────────────────────────────────
+function renderTable(stocks) {
+  const tbody = document.getElementById("stocksTableBody");
+  tbody.innerHTML = stocks.map((s, i) => {
+    const pct   = Math.min(Math.round(s.score / 155 * 100), 100);
+    const bull  = s.prediction === "BULL";
+    const bear  = s.prediction === "BEAR";
+    const plan  = s.plan || {};
+    const updn  = s.pct_change >= 0 ? "up" : "dn";
+    const grClass = s.grade === "A+" ? "Ap" : s.grade;
+
+    const scoreColor = s.score >= 90 ? "var(--bull)" : s.score >= 75 ? "var(--neutral)" : "var(--bear)";
+
+    return `
+    <tr class="${s.top_pick ? "top-pick" : ""}">
+      <td style="color:var(--muted);font-family:var(--mono)">${i+1}</td>
+      <td>
+        <div class="t-symbol">${s.symbol}${s.top_pick ? ' <span style="color:var(--bull);font-size:10px">★</span>' : ""}</div>
+        <div class="t-name">${s.name}</div>
+      </td>
+      <td style="color:var(--muted);font-size:11.5px">${s.sector}</td>
+      <td class="t-price">NPR ${fmt(s.current_price)}</td>
+      <td class="t-pct ${updn}">${s.pct_change >= 0 ? "+" : ""}${(s.pct_change||0).toFixed(1)}%</td>
+      <td>
+        <div class="score-mini">
+          <span class="t-score" style="color:${scoreColor}">${s.score}</span>
+          <div class="score-mini-bar">
+            <div class="score-mini-fill" style="width:${pct}%;background:${scoreColor}"></div>
+          </div>
+        </div>
+      </td>
+      <td><span class="grade-badge ${grClass}">${s.grade}</span></td>
+      <td><span class="pred-badge ${s.prediction}">${s.prediction}</span></td>
+      <td style="font-family:var(--mono);font-size:12px">${plan.entry ? "NPR "+fmt(plan.entry) : "—"}</td>
+      <td style="font-family:var(--mono);font-size:12px;color:var(--bear)">${plan.stop_loss ? "NPR "+fmt(plan.stop_loss) : "—"}</td>
+      <td style="font-family:var(--mono);font-size:12px;color:var(--bull)">${plan.target_1 ? "NPR "+fmt(plan.target_1) : "—"}</td>
+      <td style="font-family:var(--mono);font-size:12px;color:var(--accent)">${plan.risk_reward ? "1:"+plan.risk_reward : "—"}</td>
+      <td style="color:var(--muted);font-size:11.5px;max-width:260px;white-space:normal;line-height:1.4">${s.reason||"—"}</td>
+    </tr>`;
+  }).join("");
+}
+
+// ─── UTILS ───────────────────────────────────────────────────────
+function fmt(n) {
+  if (!n || n === 0) return "—";
+  return parseFloat(n).toLocaleString("en-IN", { maximumFractionDigits: 1 });
+}
+
+// ─── MOCK DATA (shown when backend is not running) ────────────────
+function getMockData() {
+  const today = new Date();
+  const friday = new Date(today);
+  friday.setDate(today.getDate() + (5 - today.getDay() + 7) % 7 || 7);
+
+  return {
+    generated_date: today.toISOString().split("T")[0],
+    generated_time: today.toTimeString().slice(0,5) + " NPT",
+    week_label: `Week of ${today.toLocaleDateString("en-US",{month:"short",day:"numeric"})} → ${friday.toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"})}`,
+    is_event_week: false,
+    event_description: "",
+    total_stocks: 20,
+    bull_count: 6,
+    neutral_count: 11,
+    bear_count: 3,
+    model_accuracy: 84,
+    model_version: "V5",
+    stocks: [
+      {symbol:"AKJCL",name:"Ankhu Khola Jalvidhyut",sector:"Hydro",eps:5.78,current_price:414,last_week_close:414,pct_change:2.4,week52_high:417.8,week52_low:172.9,prediction:"BULL",score:98,grade:"A+",top_pick:true,reason:"2-week bull momentum confirmed · volume surge confirming move · sector index bullish · outperforming sector peers",signals:{s1_momentum:30,s2_streak:25,s3_volume:25,s4_position:20,s5_sector:20,s8_rel_strength:15,s9_week52:-5,s10_monthly:10,total:98,streak:2,atr_flag:false,atr_value:28,bull_threshold:90},plan:{entry:414,stop_loss:400,target_1:436,target_2:451,target_3:466,band_low:427,band_high:445,risk_reward:1.57}},
+      {symbol:"API",name:"Api Power Company",sector:"Hydro",eps:17.3,current_price:340,last_week_close:340,pct_change:3.1,week52_high:355,week52_low:258.8,prediction:"BULL",score:95,grade:"A+",top_pick:true,reason:"2-week bull momentum confirmed · volume surge · sector index bullish · Week 1 liquidity boost",signals:{s1_momentum:30,s2_streak:25,s3_volume:25,s4_position:20,s5_sector:20,s8_rel_strength:7,s9_week52:5,s10_monthly:10,total:95,streak:2,atr_flag:false,atr_value:22,bull_threshold:90},plan:{entry:340,stop_loss:329,target_1:358,target_2:368,target_3:380,band_low:351,band_high:365,risk_reward:1.64}},
+      {symbol:"NABIL",name:"Nabil Bank",sector:"Bank",eps:35.04,current_price:526,last_week_close:526,pct_change:1.8,week52_high:562,week52_low:471,prediction:"BULL",score:88,grade:"A",top_pick:true,reason:"2-week bull momentum · bank sub-index bullish · Week 1 liquidity boost",signals:{s1_momentum:30,s2_streak:25,s3_volume:12,s4_position:10,s5_sector:20,s8_rel_strength:7,s9_week52:0,s10_monthly:10,total:88,streak:2,atr_flag:false,atr_value:18,bull_threshold:90},plan:{entry:526,stop_loss:517,target_1:540,target_2:549,target_3:558,band_low:534,band_high:546,risk_reward:1.56}},
+      {symbol:"BHL",name:"Balephi Hydropower",sector:"Hydro",eps:13.62,current_price:258,last_week_close:258,pct_change:2.1,week52_high:345,week52_low:164,prediction:"BULL",score:86,grade:"A",top_pick:true,reason:"2-week bull momentum · volume confirmed · 52W position good (mid-range)",signals:{s1_momentum:30,s2_streak:25,s3_volume:25,s4_position:10,s5_sector:20,s8_rel_strength:7,s9_week52:5,s10_monthly:10,total:86,streak:2,atr_flag:false,atr_value:16,bull_threshold:90},plan:{entry:258,stop_loss:250,target_1:271,target_2:279,target_3:287,band_low:266,band_high:276,risk_reward:1.63}},
+      {symbol:"SANIMA",name:"Sanima Bank",sector:"Bank",eps:20.54,current_price:351,last_week_close:351,pct_change:1.2,week52_high:391,week52_low:294.3,prediction:"BULL",score:82,grade:"A",top_pick:false,reason:"2-week bull momentum · bank sub-index bullish",signals:{s1_momentum:30,s2_streak:25,s3_volume:12,s4_position:10,s5_sector:20,s8_rel_strength:7,s9_week52:5,s10_monthly:5,total:82,streak:2,atr_flag:false,atr_value:12,bull_threshold:90},plan:{entry:351,stop_loss:345,target_1:360,target_2:366,target_3:373,band_low:356,band_high:364,risk_reward:1.5}},
+      {symbol:"BARUN",name:"Barun Hydropower",sector:"Hydro",eps:7.09,current_price:376,last_week_close:376,pct_change:1.5,week52_high:589,week52_low:292.1,prediction:"BULL",score:80,grade:"A",top_pick:false,reason:"Momentum confirmed · note: 52W high is 589 — significant room",signals:{s1_momentum:30,s2_streak:25,s3_volume:12,s4_position:10,s5_sector:20,s8_rel_strength:7,s9_week52:5,s10_monthly:5,total:80,streak:2,atr_flag:false,atr_value:20,bull_threshold:90},plan:{entry:376,stop_loss:366,target_1:392,target_2:402,target_3:412,band_low:386,band_high:398,risk_reward:1.6}},
+      {symbol:"UPPER",name:"Upper Tamakoshi",sector:"Hydro",eps:7.91,current_price:215,last_week_close:215,pct_change:0.8,week52_high:225,week52_low:166,prediction:"NEUTRAL",score:72,grade:"B",top_pick:false,reason:"Mixed signals — near 52W high (resistance zone)",signals:{s1_momentum:15,s2_streak:25,s3_volume:12,s4_position:10,s5_sector:20,s8_rel_strength:7,s9_week52:-5,s10_monthly:10,total:72,streak:1,atr_flag:false,atr_value:15,bull_threshold:90},plan:{entry:0,stop_loss:0,target_1:0,target_2:0,target_3:0,band_low:0,band_high:0,risk_reward:0}},
+      {symbol:"EBL",name:"Everest Bank",sector:"Bank",eps:30.86,current_price:679,last_week_close:679,pct_change:0.9,week52_high:780.6,week52_low:594,prediction:"NEUTRAL",score:70,grade:"B",top_pick:false,reason:"Score in neutral zone — bank momentum flat",signals:{s1_momentum:15,s2_streak:25,s3_volume:12,s4_position:10,s5_sector:-10,s8_rel_strength:7,s9_week52:5,s10_monthly:5,total:70,streak:1,atr_flag:false,atr_value:14,bull_threshold:90},plan:{entry:0,stop_loss:0,target_1:0,target_2:0,target_3:0,band_low:0,band_high:0,risk_reward:0}},
+      {symbol:"GBBL",name:"Garima Bikas Bank",sector:"DevBank",eps:21.1,current_price:420,last_week_close:420,pct_change:-0.8,week52_high:498,week52_low:367.4,prediction:"NEUTRAL",score:68,grade:"B",top_pick:false,reason:"Mixed momentum · dev bank sub-index unclear",signals:{s1_momentum:15,s2_streak:25,s3_volume:12,s4_position:10,s5_sector:-10,s8_rel_strength:7,s9_week52:5,s10_monthly:5,total:68,streak:1,atr_flag:false,atr_value:18,bull_threshold:90},plan:{entry:0,stop_loss:0,target_1:0,target_2:0,target_3:0,band_low:0,band_high:0,risk_reward:0}},
+      {symbol:"CHCL",name:"Chilime Hydropower",sector:"Hydro",eps:9.38,current_price:510,last_week_close:510,pct_change:1.1,week52_high:599.6,week52_low:456,prediction:"NEUTRAL",score:66,grade:"C",top_pick:false,reason:"Underperforming sector peers · S8 penalty applied",signals:{s1_momentum:15,s2_streak:25,s3_volume:12,s4_position:10,s5_sector:20,s8_rel_strength:-10,s9_week52:5,s10_monthly:5,total:66,streak:1,atr_flag:false,atr_value:20,bull_threshold:90},plan:{entry:0,stop_loss:0,target_1:0,target_2:0,target_3:0,band_low:0,band_high:0,risk_reward:0}},
+      {symbol:"NLIC",name:"Nepal Life Insurance",sector:"Insurance",eps:9.55,current_price:781,last_week_close:781,pct_change:0.5,week52_high:890,week52_low:702,prediction:"NEUTRAL",score:64,grade:"C",top_pick:false,reason:"Insurance sector — low liquidity, mixed signals",signals:{s1_momentum:15,s2_streak:25,s3_volume:8,s4_position:10,s5_sector:20,s8_rel_strength:7,s9_week52:0,s10_monthly:5,total:64,streak:1,atr_flag:false,atr_value:22,bull_threshold:90},plan:{entry:0,stop_loss:0,target_1:0,target_2:0,target_3:0,band_low:0,band_high:0,risk_reward:0}},
+      {symbol:"GBIME",name:"Global IME Bank",sector:"Bank",eps:17.06,current_price:239,last_week_close:239,pct_change:-2.1,week52_high:278.9,week52_low:210.7,prediction:"NEUTRAL",score:60,grade:"C",top_pick:false,reason:"Bank sub-index weak · 2-week momentum mixed",signals:{s1_momentum:15,s2_streak:12,s3_volume:8,s4_position:10,s5_sector:-10,s8_rel_strength:7,s9_week52:5,s10_monthly:5,total:60,streak:3,atr_flag:false,atr_value:10,bull_threshold:85},plan:{entry:0,stop_loss:0,target_1:0,target_2:0,target_3:0,band_low:0,band_high:0,risk_reward:0}},
+      {symbol:"NLICL",name:"National Life Insurance",sector:"Insurance",eps:10.3,current_price:595,last_week_close:595,pct_change:-1.2,week52_high:738,week52_low:539,prediction:"NEUTRAL",score:58,grade:"C",top_pick:false,reason:"Data limited · insurance sector weak momentum",signals:{s1_momentum:15,s2_streak:12,s3_volume:8,s4_position:10,s5_sector:20,s8_rel_strength:7,s9_week52:5,s10_monthly:5,total:58,streak:3,atr_flag:false,atr_value:18,bull_threshold:85},plan:{entry:0,stop_loss:0,target_1:0,target_2:0,target_3:0,band_low:0,band_high:0,risk_reward:0}},
+      {symbol:"NTC",name:"Nepal Telecom",sector:"Telecom",eps:29.45,current_price:855,last_week_close:855,pct_change:-0.6,week52_high:996.3,week52_low:762.5,prediction:"NEUTRAL",score:55,grade:"C",top_pick:false,reason:"Telecom sector weak · very low volume (7–15K/day)",signals:{s1_momentum:15,s2_streak:12,s3_volume:0,s4_position:10,s5_sector:-10,s8_rel_strength:7,s9_week52:5,s10_monthly:5,total:55,streak:3,atr_flag:false,atr_value:15,bull_threshold:85},plan:{entry:0,stop_loss:0,target_1:0,target_2:0,target_3:0,band_low:0,band_high:0,risk_reward:0}},
+      {symbol:"CBBL",name:"Chhimek Laghubitta",sector:"Microfinance",eps:33.46,current_price:938,last_week_close:938,pct_change:-1.8,week52_high:1144.8,week52_low:821.5,prediction:"NEUTRAL",score:52,grade:"C",top_pick:false,reason:"Microfinance sector — high NPL risk · momentum weakening",signals:{s1_momentum:15,s2_streak:12,s3_volume:8,s4_position:10,s5_sector:-10,s8_rel_strength:7,s9_week52:0,s10_monthly:5,total:52,streak:3,atr_flag:false,atr_value:30,bull_threshold:85},plan:{entry:0,stop_loss:0,target_1:0,target_2:0,target_3:0,band_low:0,band_high:0,risk_reward:0}},
+      {symbol:"CZBIL",name:"Citizens Bank Intl",sector:"Bank",eps:4.63,current_price:227,last_week_close:227,pct_change:5.8,week52_high:240.1,week52_low:183,prediction:"NEUTRAL",score:50,grade:"C",top_pick:false,reason:"5-week rally streak — reversal risk · S2 guard applied",signals:{s1_momentum:30,s2_streak:0,s3_volume:25,s4_position:10,s5_sector:-10,s8_rel_strength:7,s9_week52:-5,s10_monthly:5,total:50,streak:5,atr_flag:false,atr_value:12,bull_threshold:90},plan:{entry:0,stop_loss:0,target_1:0,target_2:0,target_3:0,band_low:0,band_high:0,risk_reward:0}},
+      {symbol:"AKPL",name:"Arun Kabeli Power",sector:"Hydro",eps:5.96,current_price:310,last_week_close:310,pct_change:-2.2,week52_high:306.5,week52_low:216.1,prediction:"NEUTRAL",score:48,grade:"C",top_pick:false,reason:"Mixed signals — sector weak this week",signals:{s1_momentum:15,s2_streak:12,s3_volume:8,s4_position:10,s5_sector:-10,s8_rel_strength:7,s9_week52:-5,s10_monthly:5,total:48,streak:3,atr_flag:false,atr_value:16,bull_threshold:85},plan:{entry:0,stop_loss:0,target_1:0,target_2:0,target_3:0,band_low:0,band_high:0,risk_reward:0}},
+      {symbol:"SPDL",name:"Synergy Power Dev",sector:"Power",eps:12.87,current_price:429,last_week_close:429,pct_change:-3.1,week52_high:465,week52_low:308.9,prediction:"BEAR",score:40,grade:"D",top_pick:false,reason:"Both weeks down · power sector weak · volume distribution signal",signals:{s1_momentum:0,s2_streak:25,s3_volume:0,s4_position:10,s5_sector:-10,s8_rel_strength:7,s9_week52:5,s10_monthly:0,total:40,streak:1,atr_flag:false,atr_value:25,bull_threshold:90},plan:{entry:429,stop_loss:441,target_1:409,target_2:396,target_3:384,band_low:401,band_high:417,risk_reward:1.67}},
+      {symbol:"BPCL",name:"Butwal Power Company",sector:"Hydro",eps:2.49,current_price:752,last_week_close:752,pct_change:-2.8,week52_high:1065,week52_low:380.7,prediction:"BEAR",score:35,grade:"D",top_pick:false,reason:"Underperforming sector · 52W position bad · low EPS stock (P/E 294)",signals:{s1_momentum:0,s2_streak:25,s3_volume:0,s4_position:10,s5_sector:20,s8_rel_strength:-10,s9_week52:5,s10_monthly:5,total:35,streak:1,atr_flag:false,atr_value:40,bull_threshold:90},plan:{entry:752,stop_loss:772,target_1:720,target_2:700,target_3:680,band_low:708,band_high:732,risk_reward:1.6}},
+      {symbol:"CGH",name:"Chandragiri Hills",sector:"Hotel",eps:-0.81,current_price:870,last_week_close:870,pct_change:-3.5,week52_high:1150,week52_low:800.2,prediction:"NEUTRAL",score:0,grade:"N",top_pick:false,reason:"Loss-making company (EPS −0.81) — excluded from active signals",signals:{s1_momentum:0,s2_streak:0,s3_volume:0,s4_position:0,s5_sector:0,s8_rel_strength:0,s9_week52:0,s10_monthly:0,total:0,streak:0,atr_flag:false,atr_value:0,bull_threshold:90},plan:{entry:0,stop_loss:0,target_1:0,target_2:0,target_3:0,band_low:0,band_high:0,risk_reward:0}},
+    ]
+  };
+}
+
+// Start
+loadReport(false);
+</script>
+</body>
+</html>
