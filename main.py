@@ -142,19 +142,12 @@ def build_weekly_report(force_refresh: bool = False) -> dict:
                 "s9_week52":      signals.s9_week52,
                 "s10_monthly":    signals.s10_monthly,
                 "s11_market":     signals.s11_market,
-                "s12_stoch":      signals.s12_stoch,
-                "s13_bbands":     signals.s13_bbands,
-                "s14_obv":        signals.s14_obv,
                 "total":          signals.total,
                 "streak":         signals.streak_count,
                 "streak_dir":     signals.streak_dir,
                 "atr_flag":       signals.atr_flag,
                 "atr_value":      signals.atr_value,
                 "rsi_value":      signals.rsi_value,
-                "stoch_k":        signals.stoch_k,
-                "stoch_d":        signals.stoch_d,
-                "bb_pct_b":       signals.bb_pct_b,
-                "obv_slope":      signals.obv_slope,
                 "bull_threshold": signals.bull_threshold,
             },
             "plan": {
@@ -194,7 +187,7 @@ def build_weekly_report(force_refresh: bool = False) -> dict:
         "neutral_count":    sum(1 for r in results if r["prediction"] == "NEUTRAL"),
         "bear_count":       sum(1 for r in results if r["prediction"] == "BEAR"),
         "model_accuracy":   None,  # populated by /backtest endpoint
-        "model_version":    "V9",
+        "model_version":    "V8",
         "stocks":           results,
     }
 

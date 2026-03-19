@@ -42,19 +42,12 @@ class SignalBreakdown:
     s9_week52: int = 0
     s10_monthly: int = 0
     s11_market: int = 0      # V7: NEPSE market breadth gate
-    s12_stoch: int = 0       # V9: Stochastic %K (High-Low range oscillator)
-    s13_bbands: int = 0      # V9: Bollinger Band %B (volatility position)
-    s14_obv: int = 0         # V9: OBV trend (smart money accumulation)
     total: int = 0
     streak_count: int = 0
     streak_dir: str = ""     # V7: "bull" or "bear"
     atr_flag: bool = False
     atr_value: float = 0.0
     rsi_value: float = 50.0
-    stoch_k: float = 50.0    # V9: raw Stochastic %K value
-    stoch_d: float = 50.0    # V9: raw Stochastic %D value
-    bb_pct_b: float = 0.5    # V9: raw Bollinger %B value
-    obv_slope: float = 0.0   # V9: normalised OBV slope
     bull_threshold: int = 115
 
 @dataclass
@@ -124,144 +117,6 @@ def compute_ema(prices: list, period: int) -> Optional[float]:
     return ema
 
 
-# ─── V9: NEW TECHNICAL INDICATOR HELPERS ──────────────────────────
-
-def compute_stochastic(weeks: list, current_idx: int,
-                        k_period: int = 5, d_period: int = 3) -> tuple:
-    """
-    Stochastic Oscillator: %K over k_period weekly candles using High-Low range.
-    %D = simple moving average of the last d_period %K values.
-    Returns (pct_k, pct_d) both in [0, 100].  Returns (50.0, 50.0) on
-    insufficient data — neutral, contributes 0 score.
-
-    Unlike RSI (close-only), Stochastic incorporates full candle range,
-    giving a different perspective on overbought/oversold conditions.
-    """
-    start = current_idx - k_period + 1
-    if start < 0:
-        return 50.0, 50.0
-
-    window = weeks[start: current_idx + 1]
-    highs  = [w.high  for w in window if w.high]
-    lows   = [w.low   for w in window if w.low]
-    if not highs or not lows or not weeks[current_idx].close:
-        return 50.0, 50.0
-
-    high5 = max(highs)
-    low5  = min(lows)
-    denom = high5 - low5
-    if denom == 0:
-        return 50.0, 50.0
-
-    pct_k = (weeks[current_idx].close - low5) / denom * 100
-
-    # Build %D: SMA of last d_period %K values (walk backwards)
-    k_values = []
-    for offset in range(d_period):
-        idx = current_idx - offset
-        s   = idx - k_period + 1
-        if s < 0:
-            break
-        win = weeks[s: idx + 1]
-        hi  = max((w.high for w in win if w.high), default=None)
-        lo  = min((w.low  for w in win if w.low),  default=None)
-        cl  = weeks[idx].close
-        if hi is None or lo is None or not cl:
-            break
-        den = hi - lo
-        k_values.append(50.0 if den == 0 else (cl - lo) / den * 100)
-
-    pct_d = sum(k_values) / len(k_values) if k_values else pct_k
-    return round(pct_k, 1), round(pct_d, 1)
-
-
-def compute_bb_pct_b(weeks: list, current_idx: int,
-                      period: int = 8, num_std: float = 2.0) -> float:
-    """
-    Bollinger Band %B: where current close sits within the bands.
-    %B = (close - lower) / (upper - lower)
-    <0 = below lower band (oversold), >1 = above upper band (overbought).
-    Returns 0.5 (mid-band / neutral) on insufficient data.
-
-    Uses population std dev (divide by N) — standard TA convention.
-    """
-    start = current_idx - period + 1
-    if start < 0:
-        return 0.5
-
-    closes = [weeks[j].close for j in range(start, current_idx + 1)
-              if weeks[j].close]
-    if len(closes) < period:
-        return 0.5
-
-    sma      = sum(closes) / len(closes)
-    variance = sum((c - sma) ** 2 for c in closes) / len(closes)
-    std_dev  = math.sqrt(variance)
-    if std_dev == 0:
-        return 0.5
-
-    upper = sma + num_std * std_dev
-    lower = sma - num_std * std_dev
-    width = upper - lower
-    if width == 0:
-        return 0.5
-
-    return round((weeks[current_idx].close - lower) / width, 3)
-
-
-def compute_obv_slope(weeks: list, current_idx: int,
-                       slope_window: int = 5) -> float:
-    """
-    On-Balance Volume trend: build OBV series then fit a linear slope.
-    Normalised by avg volume → dimensionless ratio comparable across stocks.
-
-    Positive slope = volume flowing in (accumulation) → bullish.
-    Negative slope = volume flowing out (distribution) → bearish.
-    OBV divergence (price down, OBV up) is implicitly captured here.
-    Returns 0.0 on insufficient data.
-    """
-    start_build = max(0, current_idx - slope_window)
-    if current_idx < slope_window:
-        return 0.0
-
-    obv = 0.0
-    obv_series = []
-    for i in range(start_build, current_idx + 1):
-        if i == start_build:
-            obv_series.append(0.0)
-            continue
-        curr = weeks[i]
-        prev = weeks[i - 1]
-        if curr.close and prev.close and curr.volume:
-            if curr.close > prev.close:
-                obv += curr.volume
-            elif curr.close < prev.close:
-                obv -= curr.volume
-        obv_series.append(obv)
-
-    if len(obv_series) < 2:
-        return 0.0
-
-    # Least-squares linear slope
-    n      = len(obv_series)
-    x_mean = (n - 1) / 2.0
-    y_mean = sum(obv_series) / n
-    num    = sum((i - x_mean) * (obv_series[i] - y_mean) for i in range(n))
-    den    = sum((i - x_mean) ** 2 for i in range(n))
-    if den == 0:
-        return 0.0
-    slope = num / den
-
-    # Normalise by average weekly volume
-    vols   = [weeks[j].volume for j in range(start_build, current_idx + 1)
-              if weeks[j].volume]
-    avg_vol = sum(vols) / len(vols) if vols else 1.0
-    if avg_vol == 0:
-        return 0.0
-
-    return round(slope / avg_vol, 3)
-
-
 # ─── UNCHANGED V5 HELPERS ─────────────────────────────────────────
 
 def compute_weekly_atr(weeks: list, current_idx: int, lookback: int = 4) -> Optional[float]:
@@ -320,7 +175,7 @@ def score_v5(
       S4 price: -3.5   → INVERTED (below avg = bullish; was above avg = bullish)
       S3 vol  : -4.0   → REDUCED  (high vol on green = distribution risk)
       S7 EMA  : -4.8   → REDUCED  (trend maturity ≠ continuation)
-    Max possible score ~235.  BULL threshold 138 (V9).
+    Max possible score ~185.  BULL threshold 95.
     """
     w = weeks[current_idx]
     signals = SignalBreakdown()
@@ -503,76 +358,16 @@ def score_v5(
         s11 = -22  # Market clearly down (≤ -2%) → strong suppression
     signals.s11_market = s11
 
-    # ── S12: Stochastic %K (5-week, max 20, -15) ─────────────────
-    # Uses High-Low price range — different from close-only RSI.
-    # Oversold below 20 = strong bounce candidate (confirms S6 RSI).
-    # Bullish %K crossing above %D = early momentum reversal signal.
-    s12 = 0
-    stoch_k_val, stoch_d_val = 50.0, 50.0
-    if current_idx >= 6:
-        stoch_k_val, stoch_d_val = compute_stochastic(weeks, current_idx)
-        k = stoch_k_val
-        if   k < 20: s12 = 20
-        elif k < 30: s12 = 12
-        elif k < 50: s12 = 5
-        elif k < 70: s12 = 0
-        elif k < 80: s12 = -8
-        else:        s12 = -15
-        # Bullish crossover bonus: %K just crossed above %D
-        if current_idx >= 7:
-            prev_k, prev_d = compute_stochastic(weeks, current_idx - 1)
-            if prev_k <= prev_d and stoch_k_val > stoch_d_val:
-                s12 += 5
-    signals.s12_stoch = s12
-    signals.stoch_k   = stoch_k_val
-    signals.stoch_d   = stoch_d_val
-
-    # ── S13: Bollinger Band %B (8-week, 2σ, max 20, -15) ─────────
-    # Volatility-adjusted position — complements 52W range (S9).
-    # Below lower band (%B < 0) = price outside normal range = strong buy.
-    # Above upper band (%B > 1) = price stretched = avoid.
-    s13 = 0
-    bb_pct_b_val = 0.5
-    if current_idx >= 7:
-        bb_pct_b_val = compute_bb_pct_b(weeks, current_idx)
-        b = bb_pct_b_val
-        if   b < 0.0: s13 = 20
-        elif b < 0.2: s13 = 12
-        elif b < 0.4: s13 = 6
-        elif b < 0.6: s13 = 0
-        elif b < 0.8: s13 = -5
-        elif b < 1.0: s13 = -10
-        else:         s13 = -15
-    signals.s13_bbands = s13
-    signals.bb_pct_b   = bb_pct_b_val
-
-    # ── S14: OBV Trend (5-week slope, max 15, -10) ────────────────
-    # Smart money signal: rising OBV = institutions accumulating.
-    # OBV rising while price is flat/down = bullish divergence.
-    # Normalised by avg volume → consistent across large/small caps.
-    s14 = 0
-    obv_slope_val = 0.0
-    if current_idx >= 5:
-        obv_slope_val = compute_obv_slope(weeks, current_idx)
-        slope = obv_slope_val
-        if   slope >  0.3: s14 = 15
-        elif slope >  0.0: s14 = 8
-        elif slope > -0.3: s14 = -5
-        else:              s14 = -10
-    signals.s14_obv   = s14
-    signals.obv_slope = obv_slope_val
-
-    # ── Total (max ~235) ──────────────────────────────────────────
-    total = s1 + s2 + s3 + s4 + s5 + s6 + s7 + s8 + s9 + s10 + s11 + s12 + s13 + s14
+    # ── Total (max ~185) ──────────────────────────────────────────
+    total = s1 + s2 + s3 + s4 + s5 + s6 + s7 + s8 + s9 + s10 + s11
     signals.total = total
 
     # ── Threshold ────────────────────────────────────────────────
-    # V9: Recalibrated after adding S12/S13/S14.
-    # 20-run analysis: thresh=140 → 76.9% accuracy, 31.7% coverage (147H/53M).
-    #                  thresh=145 → 82.4% accuracy, 19.4% coverage (too few picks).
-    # Settled on 138 to balance live coverage (~4-6 picks) with accuracy (~76-78%).
-    # Score distribution: hit avg=134.5, miss avg=131.5 (gap=+3).
-    bull_thresh = 138
+    # V8.1: Raised from 95→115 based on 516-prediction ablation.
+    # Score gap analysis: hit avg=119 vs miss avg=110.
+    # At thresh=115: 76.6% accuracy (was 63.6% at thresh=95), 43% coverage.
+    # Eliminates ~57% of false BULL signals while retaining ~70% of true hits.
+    bull_thresh = 115
     signals.bull_threshold = bull_thresh
 
     # ── Prediction (V6: BULL or NEUTRAL only) ─────────────────────
@@ -604,15 +399,15 @@ def score_v5(
 
 
 def assign_grade(score: int, pred: str) -> str:
-    """Grade on V9 scale (threshold=138, max ~235).
-    All BULL calls already have score >= 138.
-    A+ = top-tier multi-signal convergence, A = strong, B = good, C = borderline.
+    """Grade on V8.1 scale (threshold=115, max ~185).
+    All BULL calls already have score >= 115.
+    A+ = top-tier conviction, A = strong, B = good, C = borderline.
     """
     if pred == "NEUTRAL": return "N"
-    if score >= 178: return "A+"
-    if score >= 163: return "A"
-    if score >= 150: return "B"
-    if score >= 138: return "C"
+    if score >= 150: return "A+"
+    if score >= 135: return "A"
+    if score >= 125: return "B"
+    if score >= 115: return "C"
     return "D"
 
 
@@ -653,13 +448,4 @@ def generate_reason(signals: SignalBreakdown, pred: str, eps: float) -> str:
     if signals.s10_monthly == 10: parts.append("Week 1 of month — liquidity boost")
     if signals.s10_monthly == -5: parts.append("Week 4 of month — tighter liquidity")
     if signals.s11_market <= -15: parts.append("⚠ NEPSE market down last week — caution")
-    # V9 signals
-    if signals.stoch_k < 20:   parts.append(f"Stoch %K {signals.stoch_k:.0f} — range-oversold, bounce setup")
-    elif signals.stoch_k > 80: parts.append(f"⚠ Stoch %K {signals.stoch_k:.0f} — range-overbought")
-    if signals.s12_stoch >= 25: parts.append("Stoch bullish crossover (%K crossed above %D)")
-    if signals.bb_pct_b < 0.0: parts.append(f"price below Bollinger lower band (%B={signals.bb_pct_b:.2f}) — deep oversold")
-    elif signals.bb_pct_b < 0.2: parts.append(f"near Bollinger lower band (%B={signals.bb_pct_b:.2f}) — oversold zone")
-    elif signals.bb_pct_b > 1.0: parts.append(f"⚠ price above Bollinger upper band (%B={signals.bb_pct_b:.2f}) — overextended")
-    if signals.obv_slope > 0.3: parts.append("OBV rising sharply — institutional accumulation")
-    elif signals.obv_slope < -0.3: parts.append("⚠ OBV falling — distribution signal")
     return " · ".join(parts) if parts else f"Score {signals.total}"
