@@ -1,6 +1,14 @@
 """
-NEPSE V5 Scoring Engine
-10 signals → direction prediction + price range + entry/exit plan
+NEPSE V6 Scoring Engine
+Signals → direction prediction (BULL / NEUTRAL only) + price plan
+
+V6 changes vs V5:
+  • Added S6: 6-week RSI  (mean-reversion — most reliable weekly indicator)
+  • Added S7: 3W/6W EMA crossover  (trend direction confirmation)
+  • Raised BULL threshold to 108 on new 205-pt scale  (~same selectivity as V5)
+  • Removed BEAR predictions — backtest showed only 28% BEAR accuracy (worse
+    than random). BEAR scores now map to NEUTRAL.
+  • S1 enhanced: 3-week momentum window (not just 2) with recency weighting
 """
 
 from dataclasses import dataclass, field
@@ -28,6 +36,8 @@ class SignalBreakdown:
     s3_volume: int = 0
     s4_position: int = 0
     s5_sector: int = 0
+    s6_rsi: int = 0          # NEW V6
+    s7_ema: int = 0          # NEW V6
     s8_rel_strength: int = 0
     s9_week52: int = 0
     s10_monthly: int = 0
@@ -35,7 +45,8 @@ class SignalBreakdown:
     streak_count: int = 0
     atr_flag: bool = False
     atr_value: float = 0.0
-    bull_threshold: int = 90
+    rsi_value: float = 50.0  # NEW V6
+    bull_threshold: int = 108
 
 @dataclass
 class PricePlan:
@@ -47,23 +58,6 @@ class PricePlan:
     band_low: float = 0.0
     band_high: float = 0.0
     risk_reward: float = 0.0
-
-@dataclass
-class StockResult:
-    symbol: str
-    name: str
-    sector: str
-    eps: float
-    current_price: float
-    week52_high: float
-    week52_low: float
-    prediction: str           # BULL / BEAR / NEUTRAL
-    score: int
-    signals: SignalBreakdown
-    plan: PricePlan
-    reason: str = ""
-    grade: str = "C"
-    percent_change_last_week: float = 0.0
 
 # ─── SECTOR SUB-INDEX DIRECTION (per week number) ─────────────────
 # Based on real NEPSE sector index data Dec 2025 – Mar 2026
@@ -78,10 +72,7 @@ SECTOR_IDX = {
     "Power":      {12:None,11:None,10:None,9:1,8:1,7:0,6:0,5:0,4:0,3:1,2:1,1:None},
 }
 
-MONTHLY_CYCLE = {
-    # Week of month → score adjustment
-    # Week1 (days 1-7): +10, Week2 (8-14): +5, Week3 (15-21): 0, Week4+ (22+): -5
-}
+MONTHLY_CYCLE = {}
 
 def get_monthly_bonus(day_of_month: int) -> int:
     if day_of_month <= 7:   return 10
@@ -89,7 +80,44 @@ def get_monthly_bonus(day_of_month: int) -> int:
     if day_of_month <= 21:  return 0
     return -5
 
-def compute_weekly_atr(weeks: list[WeekData], current_idx: int, lookback: int = 4) -> Optional[float]:
+# ─── NEW V6: TECHNICAL INDICATOR HELPERS ──────────────────────────
+
+def compute_rsi(weeks: list, current_idx: int, period: int = 6) -> float:
+    """
+    Wilder RSI on weekly closes over `period` weeks.
+    Returns value in [0, 100]. 50 = neutral / insufficient data.
+    """
+    gains, losses = [], []
+    start = max(1, current_idx - period + 1)
+    for i in range(start, current_idx + 1):
+        if weeks[i].close and weeks[i-1].close:
+            chg = weeks[i].close - weeks[i-1].close
+            if chg > 0:   gains.append(chg)
+            elif chg < 0: losses.append(-chg)
+    if not gains and not losses:
+        return 50.0
+    avg_gain = sum(gains) / period
+    avg_loss = sum(losses) / period
+    if avg_loss == 0:
+        return 99.0 if avg_gain > 0 else 50.0
+    rs = avg_gain / avg_loss
+    return round(100 - 100 / (1 + rs), 1)
+
+
+def compute_ema(prices: list, period: int) -> Optional[float]:
+    """Exponential moving average seeded with SMA of first `period` values."""
+    if len(prices) < period:
+        return None
+    k = 2 / (period + 1)
+    ema = sum(prices[:period]) / period   # SMA seed
+    for p in prices[period:]:
+        ema = p * k + ema * (1 - k)
+    return ema
+
+
+# ─── UNCHANGED V5 HELPERS ─────────────────────────────────────────
+
+def compute_weekly_atr(weeks: list, current_idx: int, lookback: int = 4) -> Optional[float]:
     ranges = []
     for j in range(current_idx - 1, max(-1, current_idx - lookback - 1), -1):
         if j >= 0 and weeks[j].high and weeks[j].low:
@@ -120,42 +148,48 @@ def get_sector_peer_avg(symbol: str, week_num: int, sector: str, all_stocks: dic
         return None
     return sum(returns) / len(returns)
 
-# ─── V5 CORE ENGINE ──────────────────────────────────────────────
+
+# ─── V6 CORE ENGINE ───────────────────────────────────────────────
 
 def score_v5(
     symbol: str,
-    weeks: list[WeekData],
+    weeks: list,
     current_idx: int,
     eps: float,
     high52: float,
     low52: float,
     sector: str,
     sector_peer_avg: Optional[float] = None,
-) -> tuple[str, int, SignalBreakdown, PricePlan]:
+) -> tuple:
     """
     Returns: (prediction, total_score, signals, price_plan)
-    prediction: BULL | BEAR | NEUTRAL
+    prediction: BULL | NEUTRAL   (BEAR removed in V6 — backtest showed 28% accuracy)
+    Max possible score: ~205
+    BULL threshold: 108
     """
     w = weeks[current_idx]
     signals = SignalBreakdown()
 
-    # ── S6: EPS Gate (hard filter) ────────────────────────────────
+    # ── EPS Gate (hard filter — loss-making = skip) ────────────────
     if eps < 0:
         signals.total = 0
         return "NEUTRAL", 0, signals, PricePlan()
 
     p1 = weeks[current_idx - 1] if current_idx > 0 else None
     p2 = weeks[current_idx - 2] if current_idx > 1 else None
+    p3 = weeks[current_idx - 3] if current_idx > 2 else None
 
-    # ── S1: 2-Week Momentum (max 30) ─────────────────────────────
-    m1 = (p1.close >= p1.open) if p1 else None
-    m2 = (p2.close >= p2.open) if p2 else None
-    if m1 is not None and m2 is not None:
-        s1 = 30 if (m1 and m2) else 15 if (m1 or m2) else 0
-    elif m1 is not None:
-        s1 = 15 if m1 else 0
-    else:
-        s1 = 15
+    # ── S1: 3-Week Momentum with recency weighting (max 30) ───────
+    # Current week counts most, then p1, then p2, p3 is context only
+    m0 = (w.close  >= w.open)         # current week
+    m1 = (p1.close >= p1.open) if p1 else m0
+    m2 = (p2.close >= p2.open) if p2 else m1
+    # Recency-weighted: current=40%, p1=35%, p2=25%
+    bull_score = (0.40 * m0 + 0.35 * m1 + 0.25 * m2)
+    if   bull_score >= 0.75: s1 = 30   # 3/3 or strong 2/3
+    elif bull_score >= 0.50: s1 = 18   # mixed leaning bull
+    elif bull_score >= 0.35: s1 = 8    # mixed leaning bear
+    else:                    s1 = 0    # 3/3 bear
     signals.s1_momentum = s1
 
     # ── S2: Streak Guard (max 25) ────────────────────────────────
@@ -217,6 +251,38 @@ def score_v5(
     s5 = 10 if sector_dir is None else 20 if sector_dir == 1 else -10
     signals.s5_sector = s5
 
+    # ── S6: RSI (6-week) — mean-reversion signal (max 25, -15) ───
+    # NEW in V6: oversold = high score (expect bounce), overbought = penalty
+    rsi = compute_rsi(weeks, current_idx, period=6) if current_idx >= 4 else 50.0
+    signals.rsi_value = rsi
+    if   rsi <= 30: s6 = 25    # Heavily oversold — strong bounce candidate
+    elif rsi <= 40: s6 = 18    # Oversold
+    elif rsi <= 50: s6 = 8     # Neutral-low
+    elif rsi <= 60: s6 = 2     # Neutral-high
+    elif rsi <= 70: s6 = -5    # Approaching overbought
+    else:           s6 = -15   # Overbought — caution on new longs
+    signals.s6_rsi = s6
+
+    # ── S7: EMA Crossover 3W vs 6W (max 20, -10) ─────────────────
+    # NEW in V6: short EMA crossing above long EMA = uptrend confirmation
+    closes_all = [weeks[j].close for j in range(max(0, current_idx - 8), current_idx + 1)
+                  if weeks[j].close]
+    ema3 = compute_ema(closes_all, 3)
+    ema6 = compute_ema(closes_all, 6)
+    ema3_prev = compute_ema(closes_all[:-1], 3) if len(closes_all) > 3 else None
+    ema6_prev = compute_ema(closes_all[:-1], 6) if len(closes_all) > 6 else None
+
+    if ema3 and ema6:
+        cross_up   = ema3_prev and ema6_prev and ema3_prev <= ema6_prev and ema3 > ema6
+        cross_down = ema3_prev and ema6_prev and ema3_prev >= ema6_prev and ema3 < ema6
+        if   cross_up:       s7 = 20   # Golden cross — strongest uptrend signal
+        elif ema3 > ema6:    s7 = 12   # Sustained uptrend
+        elif cross_down:     s7 = -10  # Death cross — trend reversal warning
+        else:                s7 = -5   # Sustained downtrend
+    else:
+        s7 = 5   # Insufficient data — neutral
+    signals.s7_ema = s7
+
     # ── S8: Relative strength vs sector peers (max 15, -10) ───────
     stock_ret = (w.close - w.open) / w.open * 100
     if sector_peer_avg is not None:
@@ -242,59 +308,52 @@ def score_v5(
     s10 = get_monthly_bonus(w.month_day)
     signals.s10_monthly = s10
 
-    # ── Total ─────────────────────────────────────────────────────
-    total = s1 + s2 + s3 + s4 + s5 + s8 + s9 + s10
+    # ── Total (max ~205) ──────────────────────────────────────────
+    total = s1 + s2 + s3 + s4 + s5 + s6 + s7 + s8 + s9 + s10
     signals.total = total
 
-    # ── Dynamic threshold ────────────────────────────────────────
-    bull_thresh = 85 if (streak >= 3 or eps < 2) else 90
-    bear_thresh = 54
+    # ── Dynamic threshold (V6: raised to 108 base on new scale) ───
+    # Tighten further if streak risk or weak EPS
+    bull_thresh = 100 if (streak >= 3 or eps < 2) else 108
     signals.bull_threshold = bull_thresh
 
-    # ── Prediction ───────────────────────────────────────────────
+    # ── Prediction (V6: BULL or NEUTRAL only) ─────────────────────
+    # BEAR removed — backtest showed 28% accuracy (worse than random).
+    # Low-scoring stocks are NEUTRAL, not tradeable shorts in NEPSE context.
     if atr_flag:
         pred = "NEUTRAL"
     elif total >= bull_thresh:
         pred = "BULL"
-    elif total <= bear_thresh:
-        pred = "BEAR"
     else:
         pred = "NEUTRAL"
 
-    # ── Price Plan (ATR-based) ────────────────────────────────────
+    # ── Price Plan (ATR-based, BULL only) ─────────────────────────
     plan = PricePlan()
-    if atr and pred != "NEUTRAL":
-        entry = w.close  # Entry = current week's close (Sunday open proxy)
-        if pred == "BULL":
-            plan.entry      = round(entry, 1)
-            plan.stop_loss  = round(entry - atr * 0.5, 1)
-            plan.target_1   = round(entry + atr * 0.8, 1)
-            plan.target_2   = round(entry + atr * 1.3, 1)
-            plan.target_3   = round(entry + atr * 1.8, 1)
-            plan.band_low   = round(plan.target_1 - atr * 0.3, 1)
-            plan.band_high  = round(plan.target_1 + atr * 0.3, 1)
-        else:  # BEAR
-            plan.entry      = round(entry, 1)
-            plan.stop_loss  = round(entry + atr * 0.5, 1)
-            plan.target_1   = round(entry - atr * 0.8, 1)
-            plan.target_2   = round(entry - atr * 1.3, 1)
-            plan.target_3   = round(entry - atr * 1.8, 1)
-            plan.band_low   = round(plan.target_1 - atr * 0.3, 1)
-            plan.band_high  = round(plan.target_1 + atr * 0.3, 1)
-
-        risk = abs(plan.entry - plan.stop_loss)
+    if atr and pred == "BULL":
+        entry = w.close
+        plan.entry      = round(entry, 1)
+        plan.stop_loss  = round(entry - atr * 0.5, 1)
+        plan.target_1   = round(entry + atr * 0.8, 1)
+        plan.target_2   = round(entry + atr * 1.3, 1)
+        plan.target_3   = round(entry + atr * 1.8, 1)
+        plan.band_low   = round(plan.target_1 - atr * 0.3, 1)
+        plan.band_high  = round(plan.target_1 + atr * 0.3, 1)
+        risk   = abs(plan.entry - plan.stop_loss)
         reward = abs(plan.entry - plan.target_1)
         plan.risk_reward = round(reward / risk, 2) if risk > 0 else 0
 
     return pred, total, signals, plan
 
+
 def assign_grade(score: int, pred: str) -> str:
+    """Grade on new V6 scale (max ~205)."""
     if pred == "NEUTRAL": return "N"
-    if score >= 95: return "A+"
-    if score >= 85: return "A"
-    if score >= 75: return "B"
-    if score >= 65: return "C"
+    if score >= 145: return "A+"
+    if score >= 125: return "A"
+    if score >= 112: return "B"
+    if score >= 100: return "C"
     return "D"
+
 
 def generate_reason(signals: SignalBreakdown, pred: str, eps: float) -> str:
     if eps < 0:
@@ -302,14 +361,23 @@ def generate_reason(signals: SignalBreakdown, pred: str, eps: float) -> str:
     if pred == "NEUTRAL" and signals.atr_flag:
         return "High volatility week (ATR spike) — too noisy to call"
     if pred == "NEUTRAL":
-        return f"Mixed signals — score {signals.total} in neutral zone ({signals.bull_threshold-1}–55)"
+        return f"Score {signals.total} below BULL threshold ({signals.bull_threshold}) — no edge"
     parts = []
-    if signals.s1_momentum == 30: parts.append("2-week bull momentum confirmed")
+    # Momentum
+    if signals.s1_momentum == 30: parts.append("3-week bull momentum confirmed")
     if signals.s2_streak == 0:    parts.append("⚠ Long streak — reversal risk")
     if signals.s3_volume == 25:   parts.append("volume surge confirming move")
+    # V6 signals
+    if signals.rsi_value <= 35:   parts.append(f"RSI {signals.rsi_value} — heavily oversold, bounce due")
+    elif signals.rsi_value <= 45: parts.append(f"RSI {signals.rsi_value} — oversold zone")
+    elif signals.rsi_value >= 70: parts.append(f"⚠ RSI {signals.rsi_value} — overbought, caution")
+    if signals.s7_ema == 20:      parts.append("golden cross (EMA 3W crossed above 6W)")
+    elif signals.s7_ema == 12:    parts.append("EMA uptrend confirmed")
+    elif signals.s7_ema == -10:   parts.append("⚠ death cross — EMA trend reversed down")
+    # Sector / other
     if signals.s5_sector == 20:   parts.append("sector index bullish")
     if signals.s5_sector == -10:  parts.append("sector index bearish")
-    if signals.s8_rel_strength == 15: parts.append("outperforming sector peers")
+    if signals.s8_rel_strength == 15:  parts.append("outperforming sector peers")
     if signals.s8_rel_strength == -10: parts.append("underperforming peers — caution")
     if signals.s9_week52 == -5:   parts.append("near 52W high — resistance zone")
     if signals.s10_monthly == 10: parts.append("Week 1 of month — liquidity boost")

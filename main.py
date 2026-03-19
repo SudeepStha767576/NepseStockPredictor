@@ -13,7 +13,7 @@ from pathlib import Path
 
 from engine import (
     score_v5, assign_grade, generate_reason,
-    StockResult, SignalBreakdown, PricePlan
+    SignalBreakdown, PricePlan
 )
 from scraper import STOCK_META, get_all_stock_data, check_event_week
 
@@ -112,6 +112,8 @@ def build_weekly_report(force_refresh: bool = False) -> dict:
                 "s3_volume":      signals.s3_volume,
                 "s4_position":    signals.s4_position,
                 "s5_sector":      signals.s5_sector,
+                "s6_rsi":         signals.s6_rsi,
+                "s7_ema":         signals.s7_ema,
                 "s8_rel_strength":signals.s8_rel_strength,
                 "s9_week52":      signals.s9_week52,
                 "s10_monthly":    signals.s10_monthly,
@@ -119,6 +121,7 @@ def build_weekly_report(force_refresh: bool = False) -> dict:
                 "streak":         signals.streak_count,
                 "atr_flag":       signals.atr_flag,
                 "atr_value":      signals.atr_value,
+                "rsi_value":      signals.rsi_value,
                 "bull_threshold": signals.bull_threshold,
             },
             "plan": {
@@ -157,8 +160,8 @@ def build_weekly_report(force_refresh: bool = False) -> dict:
         "bull_count":       sum(1 for r in results if r["prediction"] == "BULL"),
         "neutral_count":    sum(1 for r in results if r["prediction"] == "NEUTRAL"),
         "bear_count":       sum(1 for r in results if r["prediction"] == "BEAR"),
-        "model_accuracy":   84,   # V5 backtest accuracy
-        "model_version":    "V5",
+        "model_accuracy":   None,  # populated by /backtest endpoint
+        "model_version":    "V6",
         "stocks":           results,
     }
 
