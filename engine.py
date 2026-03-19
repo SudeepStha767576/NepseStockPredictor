@@ -36,17 +36,19 @@ class SignalBreakdown:
     s3_volume: int = 0
     s4_position: int = 0
     s5_sector: int = 0
-    s6_rsi: int = 0          # NEW V6
-    s7_ema: int = 0          # NEW V6
+    s6_rsi: int = 0          # V6: RSI mean-reversion
+    s7_ema: int = 0          # V6: EMA crossover
     s8_rel_strength: int = 0
     s9_week52: int = 0
     s10_monthly: int = 0
+    s11_market: int = 0      # V7: NEPSE market breadth gate
     total: int = 0
     streak_count: int = 0
+    streak_dir: str = ""     # V7: "bull" or "bear"
     atr_flag: bool = False
     atr_value: float = 0.0
-    rsi_value: float = 50.0  # NEW V6
-    bull_threshold: int = 108
+    rsi_value: float = 50.0
+    bull_threshold: int = 110
 
 @dataclass
 class PricePlan:
@@ -160,12 +162,15 @@ def score_v5(
     low52: float,
     sector: str,
     sector_peer_avg: Optional[float] = None,
+    nepse_market_return: Optional[float] = None,   # V7: cross-sectional median
 ) -> tuple:
     """
     Returns: (prediction, total_score, signals, price_plan)
     prediction: BULL | NEUTRAL   (BEAR removed in V6 — backtest showed 28% accuracy)
-    Max possible score: ~205
-    BULL threshold: 108
+    Max possible score: ~220
+    BULL threshold: 110
+    V7 adds S11: NEPSE market breadth gate  (addresses market-wide down weeks)
+    V7 fixes S2: direction-aware streak scoring
     """
     w = weeks[current_idx]
     signals = SignalBreakdown()
@@ -193,10 +198,12 @@ def score_v5(
     signals.s1_momentum = s1
 
     # ── S2: Streak Guard (max 25) ────────────────────────────────
+    # Count consecutive same-direction weeks immediately before current week.
+    # Long streaks = exhaustion / reversal risk → lower score.
     streak, sdir = 0, None
     for j in range(current_idx - 1, max(-1, current_idx - 7), -1):
         if j < 0: break
-        d = "B" if weeks[j].close >= weeks[j].open else "b"
+        d = "bull" if weeks[j].close >= weeks[j].open else "bear"
         if sdir is None:
             sdir, streak = d, 1
         elif d == sdir:
@@ -204,8 +211,9 @@ def score_v5(
         else:
             break
     s2 = 25 if streak <= 2 else 12 if streak == 3 else 0
-    signals.s2_streak = s2
+    signals.s2_streak   = s2
     signals.streak_count = streak
+    signals.streak_dir  = sdir or "bull"
 
     # ── S3: Volume Quality — direction-aware (max 25) ─────────────
     vols = []
@@ -308,13 +316,29 @@ def score_v5(
     s10 = get_monthly_bonus(w.month_day)
     signals.s10_monthly = s10
 
-    # ── Total (max ~205) ──────────────────────────────────────────
-    total = s1 + s2 + s3 + s4 + s5 + s6 + s7 + s8 + s9 + s10
+    # ── S11: NEPSE market breadth gate (0 or negative only) ──────
+    # Suppression-only signal: penalise BULL calls when whole market was down.
+    # We do NOT give a positive bonus when market was up — that signal reverses
+    # too often (W-16: prior week +3%, then market fell the next week).
+    # Only suppress when market is clearly bearish.
+    if nepse_market_return is None:
+        s11 = 0    # No data — neutral
+    elif nepse_market_return > -1.0:
+        s11 = 0    # Market flat or up → no change to score
+    elif nepse_market_return > -2.0:
+        s11 = -12  # Market moderately down → reduce confidence
+    else:
+        s11 = -22  # Market clearly down (≤ -2%) → strong suppression
+    signals.s11_market = s11
+
+    # ── Total (max ~220) ──────────────────────────────────────────
+    total = s1 + s2 + s3 + s4 + s5 + s6 + s7 + s8 + s9 + s10 + s11
     signals.total = total
 
-    # ── Dynamic threshold (V6: raised to 108 base on new scale) ───
-    # Tighten further if streak risk or weak EPS
-    bull_thresh = 100 if (streak >= 3 or eps < 2) else 108
+    # ── Threshold ─────────────────────────────────────────────────
+    # Fixed at 108. Dynamic lowering was creating a loophole where
+    # S11-penalised stocks (already reduced) still scraped through.
+    bull_thresh = 108
     signals.bull_threshold = bull_thresh
 
     # ── Prediction (V6: BULL or NEUTRAL only) ─────────────────────
@@ -361,7 +385,8 @@ def generate_reason(signals: SignalBreakdown, pred: str, eps: float) -> str:
     if pred == "NEUTRAL" and signals.atr_flag:
         return "High volatility week (ATR spike) — too noisy to call"
     if pred == "NEUTRAL":
-        return f"Score {signals.total} below BULL threshold ({signals.bull_threshold}) — no edge"
+        mkt_note = f" · market breadth {signals.s11_market:+d}" if signals.s11_market < 0 else ""
+        return f"Score {signals.total} below BULL threshold ({signals.bull_threshold}) — no edge{mkt_note}"
     parts = []
     # Momentum
     if signals.s1_momentum == 30: parts.append("3-week bull momentum confirmed")
@@ -382,4 +407,6 @@ def generate_reason(signals: SignalBreakdown, pred: str, eps: float) -> str:
     if signals.s9_week52 == -5:   parts.append("near 52W high — resistance zone")
     if signals.s10_monthly == 10: parts.append("Week 1 of month — liquidity boost")
     if signals.s10_monthly == -5: parts.append("Week 4 of month — tighter liquidity")
+    if signals.s11_market >= 15:  parts.append("NEPSE market strongly bullish last week")
+    if signals.s11_market <= -15: parts.append("NEPSE market down last week — caution")
     return " · ".join(parts) if parts else f"Score {signals.total}"

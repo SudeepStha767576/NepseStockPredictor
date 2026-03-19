@@ -51,6 +51,25 @@ def build_weekly_report(force_refresh: bool = False) -> dict:
     all_data = get_all_stock_data()
     is_event, event_desc = check_event_week()
 
+    # ── V7: Compute NEPSE market breadth (S11) ─────────────────────
+    # Median cross-sectional return of all stocks last completed week
+    market_breadth = None
+    try:
+        all_rets = []
+        for _sym, _d in all_data.items():
+            _wks = _d.get("weeks", [])
+            if len(_wks) >= 2:
+                lw = _wks[-1]
+                if lw.open and lw.close:
+                    all_rets.append((lw.close - lw.open) / lw.open * 100)
+        if len(all_rets) >= 10:
+            all_rets.sort()
+            n = len(all_rets)
+            market_breadth = round((all_rets[n//2-1] + all_rets[n//2]) / 2 if n % 2 == 0 else all_rets[n//2], 2)
+            print(f"[engine] Market breadth (median return): {market_breadth:+.2f}%")
+    except Exception as e:
+        print(f"[engine] Market breadth compute failed: {e}")
+
     results = []
 
     for symbol, data in all_data.items():
@@ -70,16 +89,17 @@ def build_weekly_report(force_refresh: bool = False) -> dict:
         except Exception:
             pass
 
-        # Run V5 engine
+        # Run V7 engine
         pred, score, signals, plan = score_v5(
-            symbol      = symbol,
-            weeks       = weeks,
-            current_idx = current_idx,
-            eps         = eps,
-            high52      = data["hi52"],
-            low52       = data["lo52"],
-            sector      = data["sector"],
-            sector_peer_avg = sector_peer_avg,
+            symbol               = symbol,
+            weeks                = weeks,
+            current_idx          = current_idx,
+            eps                  = eps,
+            high52               = data["hi52"],
+            low52                = data["lo52"],
+            sector               = data["sector"],
+            sector_peer_avg      = sector_peer_avg,
+            nepse_market_return  = market_breadth,
         )
 
         # If event week → force NEUTRAL
@@ -117,8 +137,10 @@ def build_weekly_report(force_refresh: bool = False) -> dict:
                 "s8_rel_strength":signals.s8_rel_strength,
                 "s9_week52":      signals.s9_week52,
                 "s10_monthly":    signals.s10_monthly,
+                "s11_market":     signals.s11_market,
                 "total":          signals.total,
                 "streak":         signals.streak_count,
+                "streak_dir":     signals.streak_dir,
                 "atr_flag":       signals.atr_flag,
                 "atr_value":      signals.atr_value,
                 "rsi_value":      signals.rsi_value,

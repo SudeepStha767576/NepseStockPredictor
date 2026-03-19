@@ -1,11 +1,13 @@
 """
-NEPSE V5 — Backtesting Engine
+NEPSE V7 — Backtesting Engine
 Simulates weekly predictions for the past N weeks and measures direction accuracy.
 
 How it works:
   For each week W (1 = last week, 12 = 12 weeks ago):
     - Slice history to data available BEFORE week W (training data)
-    - Run score_v5 on the slice → get BULL/BEAR/NEUTRAL prediction
+    - Compute NEPSE market breadth (median cross-sectional return of ALL cached
+      stocks) for the last training week — this is the S11 market gate signal
+    - Run score_v5 on the slice → get BULL/NEUTRAL prediction
     - Compare predicted direction to actual close vs open of week W
     - Record hit/miss
 
@@ -56,6 +58,58 @@ def _renumber(weeks: list) -> list:
     return [replace(w, week_num=n - i) for i, w in enumerate(weeks)]
 
 
+# ─── MARKET BREADTH PRECOMPUTATION ───────────────────────────────
+
+def compute_market_breadth_all_weeks(n_weeks: int) -> dict:
+    """
+    Precompute NEPSE market breadth for each prediction week.
+
+    For predicting week_back=W, the engine uses training data ending at
+    the week BEFORE W.  The S11 signal should reflect how the whole market
+    moved in that last training week.
+
+    Returns: {week_back (int): median_cross_sectional_return (float)}
+    Uses ALL cached symbols for a representative market sample.
+    """
+    all_syms = [p.stem for p in HIST_CACHE_DIR.glob("*.json")]
+
+    # Collect per-symbol weekly returns indexed by "steps back from today"
+    # week_abs=1 → last week,  week_abs=2 → 2 weeks ago, etc.
+    returns_by_abs: dict = {}
+
+    for sym in all_syms:
+        rows = _load_daily_rows(sym)
+        if not rows:
+            continue
+        all_weeks = _aggregate_weekly(rows, BT_MAX_HISTORY)
+        if len(all_weeks) < 2:
+            continue
+        # For each absolute position, record return
+        for abs_wb in range(1, n_weeks + 3):   # +2 for safety buffer
+            idx = len(all_weeks) - abs_wb
+            if idx < 0:
+                continue
+            wk = all_weeks[idx]
+            if wk.open and wk.close:
+                ret = (wk.close - wk.open) / wk.open * 100
+                returns_by_abs.setdefault(abs_wb, []).append(ret)
+
+    # For prediction week_back=wb, the last training week is abs_wb = wb+1
+    market_breadth: dict = {}
+    for wb in range(1, n_weeks + 1):
+        signal_abs = wb + 1          # last completed week at prediction time
+        rets = returns_by_abs.get(signal_abs, [])
+        if len(rets) >= 5:
+            rets_sorted = sorted(rets)
+            n = len(rets_sorted)
+            median = (rets_sorted[n//2-1] + rets_sorted[n//2]) / 2 if n % 2 == 0 else rets_sorted[n//2]
+            market_breadth[wb] = round(median, 2)
+        else:
+            market_breadth[wb] = None  # insufficient data → S11 neutral
+
+    return market_breadth
+
+
 # ─── STOCK SELECTION ─────────────────────────────────────────────
 
 def select_backtest_stocks(meta: dict, n: int = BACKTEST_STOCKS) -> list:
@@ -87,9 +141,11 @@ def select_backtest_stocks(meta: dict, n: int = BACKTEST_STOCKS) -> list:
 
 # ─── SINGLE-STOCK BACKTEST ────────────────────────────────────────
 
-def _backtest_one(symbol: str, meta_info: dict, n_weeks: int) -> Optional[dict]:
+def _backtest_one(symbol: str, meta_info: dict, n_weeks: int,
+                  market_breadth: dict = None) -> Optional[dict]:
     """
     Backtest a single stock over n_weeks.
+    market_breadth: {week_back: median_cross_sectional_return} from precomputation.
     Returns result dict or None if insufficient data.
     """
     all_weeks = _get_full_weekly(symbol)
@@ -116,16 +172,19 @@ def _backtest_one(symbol: str, meta_info: dict, n_weeks: int) -> Optional[dict]:
         actual_week  = all_weeks[-week_back]        # the week we're evaluating
         current_idx  = len(train_weeks) - 1
 
+        mkt_ret = (market_breadth or {}).get(week_back)   # S11 input
+
         try:
             pred, score, signals, plan = score_v5(
-                symbol          = symbol,
-                weeks           = train_weeks,
-                current_idx     = current_idx,
-                eps             = eps,
-                high52          = hi52,
-                low52           = lo52,
-                sector          = sector,
-                sector_peer_avg = None,   # excluded for speed & isolation
+                symbol               = symbol,
+                weeks                = train_weeks,
+                current_idx          = current_idx,
+                eps                  = eps,
+                high52               = hi52,
+                low52                = lo52,
+                sector               = sector,
+                sector_peer_avg      = None,    # excluded for speed & isolation
+                nepse_market_return  = mkt_ret,
             )
         except Exception:
             continue
@@ -192,10 +251,16 @@ def run_backtest(symbols: list = None, n_weeks: int = BACKTEST_WEEKS) -> dict:
 
     print(f"[backtest] {n_weeks}-week backtest | {len(symbols)} stocks: {symbols}")
 
+    # Precompute S11 market breadth for all weeks (uses ALL cached symbols)
+    print("[backtest] Computing market breadth for all weeks...")
+    market_breadth = compute_market_breadth_all_weeks(n_weeks)
+    breadth_preview = {k: v for k, v in list(market_breadth.items())[:4]}
+    print(f"[backtest] Market breadth sample: {breadth_preview}")
+
     stock_results = []
     with ThreadPoolExecutor(max_workers=8) as ex:
         futures = {
-            ex.submit(_backtest_one, sym, meta.get(sym, {}), n_weeks): sym
+            ex.submit(_backtest_one, sym, meta.get(sym, {}), n_weeks, market_breadth): sym
             for sym in symbols
         }
         for fut in as_completed(futures):
