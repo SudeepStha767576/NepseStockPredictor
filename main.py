@@ -187,11 +187,13 @@ def build_weekly_report(force_refresh: bool = False) -> dict:
         "neutral_count":    sum(1 for r in results if r["prediction"] == "NEUTRAL"),
         "bear_count":       sum(1 for r in results if r["prediction"] == "BEAR"),
         "model_accuracy":   None,  # populated by /backtest endpoint
-        "model_version":    "V9",
+        "model_version":    "V8",
         "stocks":           results,
     }
 
-    CACHE_FILE.write_text(json.dumps(report, indent=2))
+    # Only cache if we got meaningful data — never write an empty report
+    if len(results) >= 10:
+        CACHE_FILE.write_text(json.dumps(report, indent=2))
     print(f"[engine] Report built: {len(results)} stocks, {bull_count} BULL picks")
     return report
 
@@ -223,7 +225,7 @@ def get_report(refresh: bool = False):
     """Get this week's full report, sorted by score descending"""
     try:
         report = build_weekly_report(force_refresh=refresh)
-        return report
+        return JSONResponse(content=report, headers={"Cache-Control": "no-store, no-cache, must-revalidate"})
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

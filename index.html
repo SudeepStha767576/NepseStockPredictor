@@ -986,9 +986,9 @@ tbody tr { cursor: pointer; }
     <div class="loading-spinner"></div>
     <div class="loading-text">RUNNING V5 ENGINE...</div>
     <div class="loading-steps">
-      Fetching NEPSE data from financialnotices.com<br>
-      Computing 10 signals for each stock<br>
-      Generating entry & exit plans
+      Fetching NEPSE data from sharesansar.com<br>
+      Computing 11 signals for each stock<br>
+      Generating entry &amp; exit plans
     </div>
   </div>
 
@@ -1262,24 +1262,42 @@ async function loadReport(forceRefresh = false) {
   document.getElementById("mainContent").style.display = "none";
 
   try {
-    const url = `${API_BASE}/report${forceRefresh ? "?refresh=true" : ""}`;
-    const res = await fetch(url);
+    const ts = Date.now();
+    const url = `${API_BASE}/report?t=${ts}${forceRefresh ? "&refresh=true" : ""}`;
+    console.log("[NEPSE] Fetching:", url);
+    const res = await fetch(url, {cache: "no-store"});
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
+    console.log("[NEPSE] Got", data.total_stocks, "stocks, bull:", data.bull_count);
     renderReport(data);
   } catch (err) {
     // Demo mode — use mock data if API is not running
-    console.warn("API not available, using demo data:", err.message);
+    console.warn("[NEPSE] API error, using demo data:", err.message);
     renderReport(getMockData());
   }
 }
 
 // ─── RENDER ───────────────────────────────────────────────────────
 function renderReport(data) {
+  // Guard: empty report — show retry instead of all-zeros
+  if (!data.stocks || data.stocks.length < 5) {
+    document.getElementById("loadingState").style.display = "none";
+    document.getElementById("mainContent").style.display = "block";
+    document.getElementById("top4Grid").innerHTML =
+      `<div class="empty-state" style="grid-column:span 2">
+        <h3>⚠ No data loaded</h3>
+        <p>The engine returned 0 stocks. The market data source may be temporarily unavailable.</p>
+        <button class="refresh-btn" style="margin-top:12px" onclick="loadReport(true)">⟳ Retry</button>
+      </div>`;
+    document.getElementById("stocksTableBody").innerHTML =
+      `<tr><td colspan="11" style="text-align:center;color:var(--muted);padding:32px">No stocks to display — click Retry above</td></tr>`;
+    return;
+  }
+
   // Header
   document.getElementById("weekLabel").textContent = data.week_label || "This Week";
   document.getElementById("genTime").textContent = `Generated: ${data.generated_time || "—"} · ${data.generated_date || ""}`;
-  document.getElementById("accuracyPill").textContent = `${data.model_accuracy || 84}% V5 Accuracy`;
+  document.getElementById("accuracyPill").textContent = `${data.model_accuracy || 84}% ${data.model_version || 'V8'} Accuracy`;
 
   // Event warning
   if (data.is_event_week) {
