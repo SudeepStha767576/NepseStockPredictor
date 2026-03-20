@@ -135,7 +135,7 @@ table { width: 100%; border-collapse: collapse; }
 thead th, tbody td { white-space: nowrap; }
 .col-stock  { min-width: 90px; position: sticky; left: 0; z-index: 2; background: var(--bg2); }
 .col-sector { min-width: 96px; position: sticky; left: 90px; z-index: 2; background: var(--bg2); }
-.col-acc    { min-width: 68px; position: sticky; right: 0; z-index: 2; background: var(--bg2); }
+.col-acc    { min-width: 110px; position: sticky; right: 0; z-index: 2; background: var(--bg2); }
 
 /* after sticky cols: add subtle shadow */
 .col-sector::after, .col-acc::before {
@@ -176,31 +176,49 @@ tbody td { padding: 0; vertical-align: middle; }
 
 /* Week cell */
 .week-cell {
-  width: 80px; height: 60px;
+  width: 86px; height: 72px;
   display: flex; flex-direction: column;
-  align-items: center; justify-content: center; gap: 2px;
+  align-items: flex-start; justify-content: center; gap: 3px;
   border: 1px solid transparent; border-radius: 6px;
   margin: 4px; cursor: default;
   transition: filter .15s;
   position: relative;
+  padding: 0 8px;
 }
-.week-cell:hover { filter: brightness(1.15); }
+.week-cell:hover { filter: brightness(1.18); }
 
-.cell-wrap { padding: 3px 4px; }
+.cell-wrap { padding: 2px 3px; }
 
-.wc-arrow  { font-size: 16px; line-height: 1; }
-.wc-ret    { font-family: var(--mono); font-size: 10px; font-weight: 500; opacity: .85; }
-.wc-score  { font-family: var(--mono); font-size: 9px; opacity: .55; }
+/* Predicted row */
+.wc-pred {
+  display: flex; align-items: center; gap: 4px;
+  font-family: var(--mono); font-size: 10px; font-weight: 600;
+  line-height: 1;
+}
+.wc-pred-arrow { font-size: 13px; }
+.wc-pred-label { font-size: 9px; letter-spacing: .04em; }
+
+/* Actual row */
+.wc-actual {
+  display: flex; align-items: center; gap: 4px;
+  font-family: var(--mono); font-size: 10px;
+  line-height: 1; opacity: .9;
+}
+.wc-actual-arrow { font-size: 11px; }
+.wc-actual-ret   { font-size: 10px; font-weight: 500; }
+
+/* Score row */
+.wc-score { font-family: var(--mono); font-size: 9px; opacity: .45; }
 
 /* Accuracy cell */
 .acc-cell {
-  font-family: var(--mono); font-size: 12px; font-weight: 500;
-  padding: 0 14px;
+  font-family: var(--mono); font-size: 11px; font-weight: 500;
+  padding: 0 10px;
 }
 .acc-high   { color: var(--bull); }
 .acc-mid    { color: var(--neutral); }
 .acc-low    { color: var(--bear); }
-.acc-none   { color: var(--muted); }
+.acc-none   { color: var(--muted); font-size: 10px; }
 
 /* Footer row */
 tfoot td {
@@ -260,7 +278,7 @@ tfoot .fw-acc-cell { padding: 10px 14px; }
         <div class="logo-mark">V5</div>
         <div class="logo-text">
           <h1>Backtest — Walk-Forward Accuracy</h1>
-          <p>12-week directional accuracy · 1 stock per sector · BULL/BEAR predictions only</p>
+          <p>Walk-forward · Each cell: top = Predicted, middle = Actual · Only BULL/BEAR calls counted</p>
         </div>
       </div>
       <a class="back-link" href="/">← Weekly Report</a>
@@ -394,7 +412,13 @@ function accClass(v) {
   if (v >= 50)   return 'acc-mid';
   return 'acc-low';
 }
-function accStr(v) { return v == null ? '—' : v + '%'; }
+function accStr(stock) {
+  const v = stock.accuracy;
+  if (v == null) return 'no calls';
+  const decided = (stock.weeks || []).filter(r => r.hit !== null);
+  const hits    = decided.filter(r => r.hit === true).length;
+  return `${hits}/${decided.length} (${v}%)`;
+}
 
 /* ─── CELL HELPERS ────────────────────── */
 function cellClass(row) {
@@ -409,17 +433,36 @@ function cellClass(row) {
   return 'c-neutral';
 }
 
-function cellArrow(row) {
+/* Predicted direction display */
+function predArrow(row)  {
   if (!row) return '·';
   if (row.predicted === 'BULL') return '▲';
   if (row.predicted === 'BEAR') return '▼';
   return '→';
 }
-
-function cellArrowColor(row) {
+function predLabel(row) {
+  if (!row) return '';
+  return row.predicted;
+}
+function predColor(row) {
   if (!row) return 'var(--muted)';
   if (row.predicted === 'BULL') return 'var(--bull)';
   if (row.predicted === 'BEAR') return 'var(--bear)';
+  return 'var(--muted)';
+}
+
+/* Actual direction display */
+function actualArrow(row) {
+  if (!row) return '';
+  if (row.actual_direction === 'UP')   return '↑';
+  if (row.actual_direction === 'DOWN') return '↓';
+  if (row.actual_direction === 'FLAT') return '↔';
+  return '';
+}
+function actualColor(row) {
+  if (!row) return 'var(--muted)';
+  if (row.actual_direction === 'UP')   return 'var(--bull)';
+  if (row.actual_direction === 'DOWN') return 'var(--bear)';
   return 'var(--muted)';
 }
 
@@ -506,7 +549,7 @@ function renderTable(data) {
     const lbl = weekLabel(stocks, wb);
     headHtml += `<th title="Week ${wb} back">${lbl || ('W-' + wb)}</th>`;
   }
-  headHtml += '<th class="col-acc">Acc%</th>';
+  headHtml += '<th class="col-acc">Hit / Calls</th>';
   headHtml += '</tr>';
   head.innerHTML = headHtml;
 
@@ -528,27 +571,36 @@ function renderTable(data) {
     for (let wb = nw; wb >= 1; wb--) {
       const row   = wMap[wb] || null;
       const cls   = cellClass(row);
-      const arrow = row ? cellArrow(row) : '·';
-      const arrowC= row ? cellArrowColor(row) : 'var(--muted)';
-      const ret   = row ? retStr(row.actual_return_pct) : '';
-      const retC  = row ? retColor(row.actual_return_pct) : 'var(--muted)';
-      const score = row ? row.score : '';
-      const ttIdx = row ? buildTooltipData(stock, row) : '';
+      const pArrow = predArrow(row);
+      const pLabel = predLabel(row);
+      const pColor = predColor(row);
+      const aArrow = actualArrow(row);
+      const aColor = actualColor(row);
+      const ret    = row ? retStr(row.actual_return_pct) : '';
+      const retC   = row ? retColor(row.actual_return_pct) : 'var(--muted)';
+      const score  = row ? row.score : '';
+      const ttIdx  = row ? buildTooltipData(stock, row) : '';
 
       bodyHtml += `<td>
         <div class="cell-wrap" ${ttIdx ? `data-tt="${ttIdx}"` : ''}
              onmouseenter="showTip(event,${ttIdx?`'${ttIdx}'`:'null'})"
              onmouseleave="hideTip()">
           <div class="week-cell ${cls}">
-            <div class="wc-arrow" style="color:${arrowC}">${arrow}</div>
-            <div class="wc-ret"  style="color:${retC}">${ret}</div>
-            ${score !== '' ? `<div class="wc-score">${score}</div>` : ''}
+            <div class="wc-pred" style="color:${pColor}">
+              <span class="wc-pred-arrow">${pArrow}</span>
+              <span class="wc-pred-label">${pLabel}</span>
+            </div>
+            <div class="wc-actual" style="color:${aColor}">
+              <span class="wc-actual-arrow">${aArrow}</span>
+              <span class="wc-actual-ret" style="color:${retC}">${ret}</span>
+            </div>
+            ${score !== '' ? `<div class="wc-score">score ${score}</div>` : ''}
           </div>
         </div>
       </td>`;
     }
 
-    const aStr = accStr(stock.accuracy);
+    const aStr = accStr(stock);
     const aCls = accClass(stock.accuracy);
     bodyHtml += `<td class="col-acc"><span class="acc-cell ${aCls}">${aStr}</span></td>`;
     bodyHtml += '</tr>';
