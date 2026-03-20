@@ -1,4 +1,6 @@
-cache/
+cache/*
+!cache/weekly_report.json
 __pycache__/
 *.pyc
 *.pyo
+server*.log

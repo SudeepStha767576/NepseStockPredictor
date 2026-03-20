@@ -194,7 +194,18 @@ def build_weekly_report(force_refresh: bool = False) -> dict:
     # Only cache if we got meaningful data — never write an empty report
     if len(results) >= 10:
         CACHE_FILE.write_text(json.dumps(report, indent=2))
-    print(f"[engine] Report built: {len(results)} stocks, {bull_count} BULL picks")
+        print(f"[engine] Report built: {len(results)} stocks, {bull_count} BULL picks")
+        return report
+
+    # Fresh data failed (scraper blocked / no network) — serve stale cache if available
+    if CACHE_FILE.exists():
+        stale = json.loads(CACHE_FILE.read_text())
+        stale_stocks = len(stale.get("stocks", []))
+        print(f"[engine] Fresh data returned {len(results)} stocks — serving stale cache ({stale_stocks} stocks)")
+        stale["generated_time"] = datetime.now().strftime("%H:%M NPT") + " (cached)"
+        return stale
+
+    print(f"[engine] Warning: returning empty report ({len(results)} stocks)")
     return report
 
 def get_week_label() -> str:
