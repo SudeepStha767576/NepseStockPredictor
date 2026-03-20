@@ -756,6 +756,185 @@ tbody tr { cursor: pointer; }
 .sig-total-label { font-family: var(--mono); font-size: 12px; color: var(--muted); }
 .sig-total-val { font-family: var(--display); font-size: 22px; font-weight: 700; color: var(--accent); }
 .sig-threshold-note { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+
+/* ─── FEATURE 1: SEARCH / FILTER BAR ────────────────────────── */
+.filter-bar {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px 16px;
+  margin-bottom: 16px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+.filter-search {
+  flex: 1;
+  min-width: 160px;
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 7px 12px;
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 12px;
+  outline: none;
+  transition: border-color .2s;
+}
+.filter-search:focus { border-color: var(--accent); }
+.filter-search::placeholder { color: var(--muted); }
+.filter-sector {
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 7px 10px;
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 12px;
+  outline: none;
+  cursor: pointer;
+  transition: border-color .2s;
+  min-width: 120px;
+}
+.filter-sector:focus { border-color: var(--accent); }
+.filter-signal-btns {
+  display: flex;
+  gap: 4px;
+}
+.filter-sig-btn {
+  padding: 6px 14px;
+  border-radius: 6px;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  background: var(--bg3);
+  color: var(--muted);
+  transition: all .15s;
+}
+.filter-sig-btn:hover { border-color: var(--border2); color: var(--text); }
+.filter-sig-btn.active-all { background: rgba(240,192,64,.12); border-color: rgba(240,192,64,.3); color: var(--accent); }
+.filter-sig-btn.active-bull { background: var(--bull-bg); border-color: var(--bull-bd); color: var(--bull); }
+.filter-sig-btn.active-neutral { background: var(--neutral-bg); border-color: var(--neutral-bd); color: var(--neutral); }
+.filter-count {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.filter-count span { color: var(--accent); }
+.filter-clear-btn {
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-family: var(--mono);
+  font-size: 11px;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--muted);
+  transition: all .15s;
+}
+.filter-clear-btn:hover { color: var(--text); border-color: var(--border2); }
+
+/* ─── FEATURE 2: MOBILE MODAL ────────────────────────────────── */
+@media (max-width: 640px) {
+  .modal-overlay {
+    padding: 0;
+    align-items: flex-end;
+  }
+  .modal {
+    border-radius: 18px 18px 0 0;
+    max-width: 100%;
+    width: 100%;
+    height: 90vh;
+    overflow-y: auto;
+    transform: translateY(100%);
+  }
+  .modal-overlay.open .modal { transform: none; }
+  .overview-grid { grid-template-columns: 1fr !important; }
+  .modal-tabs {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    flex-wrap: nowrap;
+    padding: 0 16px;
+  }
+  .modal-tab { white-space: nowrap; flex-shrink: 0; }
+  .plan-levels { flex-wrap: wrap; }
+  .plan-level { flex: 0 0 calc(50% - 5px); min-width: 0; }
+  #chartContainer { height: 260px !important; }
+  .modal-close {
+    position: fixed;
+    top: calc(10vh + 8px);
+    right: 12px;
+    z-index: 1100;
+    width: 44px;
+    height: 44px;
+    border-radius: 10px;
+  }
+}
+
+/* ─── FEATURE 4: EXPORT BUTTONS ──────────────────────────────── */
+.export-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 13px;
+  border-radius: 7px;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  background: var(--bg3);
+  color: var(--muted);
+  transition: all .15s;
+}
+.export-btn:hover { border-color: var(--border2); color: var(--text); background: rgba(255,255,255,.04); }
+
+/* ─── FEATURE 4: PRINT / PDF ─────────────────────────────────── */
+@media print {
+  /* Hide everything non-essential */
+  .header-meta, .refresh-btn, .export-btn,
+  .footer, .disclaimer, #loadingState,
+  .modal-overlay, .filter-bar, .event-warning,
+  .accuracy-pill, .section-head .export-btn,
+  .stats-row { display: none !important; }
+
+  /* Show print header */
+  body::after {
+    content: none;
+  }
+  body::before {
+    display: none;
+  }
+  .print-header { display: block !important; }
+
+  body { background: #fff !important; color: #000 !important; font-size: 10px; }
+  .container { padding: 0 8px; }
+  .table-wrap { border: 1px solid #ccc; border-radius: 0; }
+  table { font-size: 10px; }
+  thead th { background: #f0f0f0 !important; color: #333 !important; padding: 4px 6px; }
+  tbody td { padding: 4px 6px; color: #000 !important; }
+  tbody tr { page-break-inside: avoid; }
+  .t-symbol, .t-name, .t-price, .t-pct { color: #000 !important; }
+  .pred-badge { border: 1px solid #999; color: #000 !important; background: transparent !important; }
+  .grade-badge { color: #000 !important; background: transparent !important; }
+  .score-mini-bar, .score-mini-fill { display: none; }
+  .top4-grid { display: none !important; }
+}
+
+.print-header {
+  display: none;
+  font-family: var(--mono);
+  font-size: 14px;
+  font-weight: 600;
+  color: #000;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 2px solid #000;
+}
 </style>
 </head>
 <body>
@@ -813,6 +992,9 @@ tbody tr { cursor: pointer; }
     </div>
   </div>
 
+  <!-- PRINT HEADER (only visible in print mode) -->
+  <div class="print-header" id="printHeader">NEPSE Signal Report — <span id="printDate"></span></div>
+
   <!-- MAIN CONTENT (hidden until data loads) -->
   <div id="mainContent" style="display:none">
 
@@ -868,8 +1050,28 @@ tbody tr { cursor: pointer; }
         All Stocks — Ranked by Score
         <span class="tag" style="background:var(--bg3);color:var(--muted)">DESCENDING</span>
       </div>
-      <div style="font-size:12px;color:var(--muted);font-family:var(--mono)" id="tableCount"></div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <button class="export-btn" onclick="exportCSV()" title="Download filtered stocks as CSV">⬇ CSV</button>
+        <button class="export-btn" onclick="window.print()" title="Print / Save as PDF">🖨 Print</button>
+        <div style="font-size:12px;color:var(--muted);font-family:var(--mono)" id="tableCount"></div>
+      </div>
     </div>
+
+    <!-- FILTER BAR -->
+    <div class="filter-bar">
+      <input class="filter-search" id="filterSearch" type="text" placeholder="Search symbol or company…" oninput="applyFilters()" />
+      <select class="filter-sector" id="filterSector" onchange="applyFilters()">
+        <option value="">All Sectors</option>
+      </select>
+      <div class="filter-signal-btns">
+        <button class="filter-sig-btn active-all" id="fBtn-ALL" onclick="setSignalFilter('ALL')">ALL</button>
+        <button class="filter-sig-btn" id="fBtn-BULL" onclick="setSignalFilter('BULL')">BULL</button>
+        <button class="filter-sig-btn" id="fBtn-NEUTRAL" onclick="setSignalFilter('NEUTRAL')">NEUTRAL</button>
+      </div>
+      <div class="filter-count" id="filterCount">Showing <span id="filterShowing">0</span> of <span id="filterTotal">0</span> stocks</div>
+      <button class="filter-clear-btn" onclick="clearFilters()">✕ Clear</button>
+    </div>
+
     <div class="table-wrap">
       <div class="table-scroll">
         <table>
@@ -1050,6 +1252,10 @@ const API_BASE = window.location.origin === "null" || window.location.protocol =
   ? "http://localhost:8008"
   : window.location.origin;
 
+// ─── GLOBAL STATE FOR FILTER ──────────────────────────────────────
+let allStocks = [];
+let _signalFilter = 'ALL';
+
 // ─── LOAD REPORT ─────────────────────────────────────────────────
 async function loadReport(forceRefresh = false) {
   document.getElementById("loadingState").style.display = "flex";
@@ -1093,9 +1299,21 @@ function renderReport(data) {
   const top4 = (data.stocks || []).filter(s => s.top_pick);
   renderTop4(top4);
 
-  // All stocks table
-  document.getElementById("tableCount").textContent = `${(data.stocks||[]).length} stocks`;
-  renderTable(data.stocks || []);
+  // Store all stocks globally for client-side filtering
+  allStocks = data.stocks || [];
+
+  // Populate sector dropdown
+  const sectors = [...new Set(allStocks.map(s => s.sector).filter(Boolean))].sort();
+  const sectorSel = document.getElementById('filterSector');
+  sectorSel.innerHTML = '<option value="">All Sectors</option>' +
+    sectors.map(sec => `<option value="${sec}">${sec}</option>`).join('');
+
+  // Set print date
+  document.getElementById('printDate').textContent = data.generated_date || new Date().toISOString().split('T')[0];
+
+  // Initial table render with no filters
+  document.getElementById('filterTotal').textContent = allStocks.length;
+  applyFilters();
 
   // Show content
   document.getElementById("loadingState").style.display = "none";
@@ -1570,6 +1788,186 @@ function renderChart(d) {
   volChart.timeScale().subscribeVisibleLogicalRangeChange(range => {
     _lwChart.timeScale().setVisibleLogicalRange(range);
   });
+
+  // ─── FEATURE 3: NEPSE Market Composite Overlay ───────────────
+  (async () => {
+    try {
+      const res = await fetch(`${API_BASE}/api/market-composite`);
+      if (!res.ok) return;
+      const { composite } = await res.json();
+      if (!composite || !composite.length || !validCandles.length) return;
+
+      // Build a map of composite by time for fast lookup
+      const compMap = {};
+      composite.forEach(pt => { compMap[pt.time] = pt.value; });
+
+      // Get the set of times that appear in the stock candles
+      const candleTimes = new Set(validCandles.map(c => c.time));
+
+      // Filter composite to only the dates that match candle dates
+      const overlayRaw = composite.filter(pt => candleTimes.has(pt.time));
+      if (!overlayRaw.length) return;
+
+      // Normalize so that the first composite point = stock's first candle close
+      const firstClose = validCandles[0].close;
+      const firstCompVal = overlayRaw[0].value;
+      if (!firstClose || !firstCompVal) return;
+      const scale = firstClose / firstCompVal;
+
+      const overlayData = overlayRaw.map(pt => ({
+        time: pt.time,
+        value: parseFloat((pt.value * scale).toFixed(2)),
+      }));
+
+      // Add left price scale for the composite line
+      _lwChart.applyOptions({
+        leftPriceScale: { visible: true, borderColor: 'rgba(255,255,255,0.1)' },
+      });
+
+      const compSeries = _lwChart.addLineSeries({
+        color: 'rgba(240,192,64,0.6)',
+        lineWidth: 2,
+        priceScaleId: 'left',
+        title: '',
+        lastValueVisible: false,
+        priceLineVisible: false,
+      });
+      compSeries.setData(overlayData);
+
+      // Add chart legend
+      const legend = document.createElement('div');
+      legend.style.cssText = `
+        position:absolute; top:8px; left:8px; z-index:10;
+        display:flex; gap:12px; font-family:var(--mono); font-size:10px;
+        background:rgba(13,15,20,0.8); border-radius:6px; padding:5px 10px;
+        border:1px solid rgba(255,255,255,0.06);
+      `;
+      legend.innerHTML = `
+        <span style="color:#10d97e">— Stock price</span>
+        <span style="color:rgba(240,192,64,0.8)">— NEPSE composite</span>
+      `;
+      container.style.position = 'relative';
+      container.appendChild(legend);
+    } catch(e) {
+      console.warn('[chart] Market composite overlay failed:', e.message);
+    }
+  })();
+}
+
+// ─── FEATURE 1: FILTER FUNCTIONS ─────────────────────────────────
+function applyFilters() {
+  const query  = (document.getElementById('filterSearch').value || '').toLowerCase().trim();
+  const sector = document.getElementById('filterSector').value;
+
+  let filtered = allStocks.filter(s => {
+    // Text search (symbol OR name)
+    if (query) {
+      const sym  = (s.symbol || '').toLowerCase();
+      const name = (s.name || '').toLowerCase();
+      if (!sym.includes(query) && !name.includes(query)) return false;
+    }
+    // Sector filter
+    if (sector && s.sector !== sector) return false;
+    // Signal filter
+    if (_signalFilter !== 'ALL' && s.prediction !== _signalFilter) return false;
+    return true;
+  });
+
+  document.getElementById('filterShowing').textContent = filtered.length;
+  document.getElementById('filterTotal').textContent = allStocks.length;
+  document.getElementById('tableCount').textContent = `${filtered.length} / ${allStocks.length} stocks`;
+
+  renderTable(filtered);
+}
+
+function setSignalFilter(val) {
+  _signalFilter = val;
+  // Update button active states
+  ['ALL', 'BULL', 'NEUTRAL'].forEach(v => {
+    const btn = document.getElementById('fBtn-' + v);
+    btn.className = 'filter-sig-btn';
+    if (v === val) {
+      btn.classList.add(v === 'ALL' ? 'active-all' : v === 'BULL' ? 'active-bull' : 'active-neutral');
+    }
+  });
+  applyFilters();
+}
+
+function clearFilters() {
+  document.getElementById('filterSearch').value = '';
+  document.getElementById('filterSector').value = '';
+  _signalFilter = 'ALL';
+  ['ALL', 'BULL', 'NEUTRAL'].forEach(v => {
+    const btn = document.getElementById('fBtn-' + v);
+    btn.className = 'filter-sig-btn';
+  });
+  document.getElementById('fBtn-ALL').classList.add('active-all');
+  applyFilters();
+}
+
+// ─── FEATURE 4: CSV EXPORT ────────────────────────────────────────
+function exportCSV() {
+  // Get currently filtered stocks by re-running filter logic
+  const query  = (document.getElementById('filterSearch').value || '').toLowerCase().trim();
+  const sector = document.getElementById('filterSector').value;
+  const filtered = allStocks.filter(s => {
+    if (query) {
+      const sym  = (s.symbol || '').toLowerCase();
+      const name = (s.name || '').toLowerCase();
+      if (!sym.includes(query) && !name.includes(query)) return false;
+    }
+    if (sector && s.sector !== sector) return false;
+    if (_signalFilter !== 'ALL' && s.prediction !== _signalFilter) return false;
+    return true;
+  });
+
+  const escCSV = (val) => {
+    if (val == null) return '';
+    const str = String(val);
+    if (str.includes(',') || str.includes('"') || str.includes('\n')) {
+      return '"' + str.replace(/"/g, '""') + '"';
+    }
+    return str;
+  };
+
+  const headers = ['#','Symbol','Name','Sector','Price','Change%','Score','Grade','Signal',
+    'Entry','Stop Loss','T1 Target','T2 Target','T3 Target','R:R','Reason'];
+
+  const rows = filtered.map((s, i) => {
+    const p = s.plan || {};
+    return [
+      i + 1,
+      s.symbol,
+      s.name,
+      s.sector,
+      s.current_price,
+      (s.pct_change || 0).toFixed(2),
+      s.score,
+      s.grade,
+      s.prediction,
+      p.entry || '',
+      p.stop_loss || '',
+      p.target_1 || '',
+      p.target_2 || '',
+      p.target_3 || '',
+      p.risk_reward ? '1:' + p.risk_reward : '',
+      s.reason || '',
+    ].map(escCSV).join(',');
+  });
+
+  const csvContent = [headers.join(','), ...rows].join('\r\n');
+  const today = new Date().toISOString().split('T')[0];
+  const filename = `nepse-picks-${today}.csv`;
+
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const url  = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
 }
 
 // Keyboard close

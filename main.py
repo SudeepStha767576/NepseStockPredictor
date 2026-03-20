@@ -339,6 +339,89 @@ def get_backtest(weeks: int = 12, symbols: str = None):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/api/market-composite")
+def get_market_composite():
+    """
+    Build a NEPSE market composite index from median weekly returns across all stocks.
+    Cached daily to cache/market_composite.json.
+    Returns: {"composite": [{"time": "YYYY-MM-DD", "value": 1043.2}, ...]}
+    """
+    from datetime import timedelta
+    import statistics
+
+    composite_file = BASE_DIR / "cache" / "market_composite.json"
+    ensure_cache()
+
+    # Return cached if same day
+    if composite_file.exists():
+        try:
+            cached = json.loads(composite_file.read_text())
+            if cached.get("generated_date") == datetime.now().strftime("%Y-%m-%d"):
+                return {"composite": cached["composite"]}
+        except Exception:
+            pass
+
+    try:
+        all_data = get_all_stock_data()
+
+        # Find the maximum number of weeks available across all stocks
+        max_weeks = 0
+        for sym, d in all_data.items():
+            wks = d.get("weeks", [])
+            if len(wks) > max_weeks:
+                max_weeks = len(wks)
+
+        if max_weeks < 2:
+            raise HTTPException(status_code=500, detail="Not enough data to build composite")
+
+        # For each week index, gather all per-stock weekly returns
+        weekly_medians = []
+        for i in range(max_weeks):
+            rets = []
+            for sym, d in all_data.items():
+                wks = d.get("weeks", [])
+                if i < len(wks):
+                    w = wks[i]
+                    if w.open and w.close and w.open != 0:
+                        rets.append((w.close - w.open) / w.open)
+            if len(rets) >= 5:
+                med = statistics.median(rets)
+            else:
+                med = 0.0
+            weekly_medians.append(med)
+
+        # Build normalized index starting at 1000
+        index_values = [1000.0]
+        for med in weekly_medians[1:]:
+            index_values.append(round(index_values[-1] * (1 + med), 2))
+
+        # Assign calendar dates: most-recent week = last Friday, count back by weeks
+        today = datetime.now()
+        weekday = today.weekday()  # Monday=0, Friday=4
+        days_since_friday = (weekday - 4) % 7
+        last_friday = today - timedelta(days=days_since_friday)
+
+        n = len(index_values)
+        composite = []
+        for i, val in enumerate(index_values):
+            offset_weeks = n - 1 - i
+            week_date = last_friday - timedelta(weeks=offset_weeks)
+            composite.append({
+                "time": week_date.strftime("%Y-%m-%d"),
+                "value": val,
+            })
+
+        result = {
+            "generated_date": datetime.now().strftime("%Y-%m-%d"),
+            "composite": composite,
+        }
+        composite_file.write_text(json.dumps(result, indent=2))
+        return {"composite": composite}
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/health")
 def health():
     return {"status": "ok", "time": datetime.now().isoformat(), "version": "V5"}
