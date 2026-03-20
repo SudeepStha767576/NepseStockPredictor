@@ -1,0 +1,1087 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title id="pageTitle">Stock Analysis — NEPSE Predictor</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
+  <style>
+    /* === ROOT VARIABLES (same as index.html) === */
+    :root {
+      --bg: #0a0e1a;
+      --bg2: #0f1320;
+      --bg3: #141824;
+      --bg4: #1a1f2e;
+      --border: rgba(255,255,255,.07);
+      --border2: rgba(255,255,255,.12);
+      --text: #e8eaf0;
+      --muted: #6b7280;
+      --muted2: #9ca3af;
+      --bull: #10d97e;
+      --bull-dim: rgba(16,217,126,.15);
+      --bull-bd: rgba(16,217,126,.25);
+      --bear: #f43f5e;
+      --bear-dim: rgba(244,63,94,.15);
+      --bear-bd: rgba(244,63,94,.25);
+      --neutral: #f59e0b;
+      --neutral-dim: rgba(245,158,11,.15);
+      --accent: #38bdf8;
+      --accent-dim: rgba(56,189,248,.15);
+      --gold: #f59e0b;
+      --display: 'Space Grotesk', sans-serif;
+      --body: 'Inter', sans-serif;
+      --mono: 'JetBrains Mono', monospace;
+      --radius: 14px;
+      --shadow: 0 4px 24px rgba(0,0,0,.4);
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--body);
+      font-size: 14px;
+      line-height: 1.6;
+      min-height: 100vh;
+    }
+
+    body::before {
+      content: '';
+      position: fixed; inset: 0;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");
+      pointer-events: none; z-index: 0; opacity: .4;
+    }
+
+    .container {
+      position: relative; z-index: 1;
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 24px 20px 60px;
+    }
+
+    /* === LOADING OVERLAY === */
+    .detail-loading {
+      position: fixed; inset: 0; z-index: 999;
+      background: var(--bg);
+      display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px;
+    }
+    .detail-loading.hidden { display: none; }
+    .spinner {
+      width: 40px; height: 40px;
+      border: 3px solid var(--border2);
+      border-top-color: var(--bull);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .loading-text { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+
+    /* === ERROR STATE === */
+    .error-card {
+      background: var(--bg2); border: 1px solid var(--bear-bd);
+      border-radius: var(--radius); padding: 40px; text-align: center; margin-top: 60px;
+    }
+    .error-card h2 { font-family: var(--display); font-size: 20px; color: var(--bear); margin-bottom: 12px; }
+    .error-card p { color: var(--muted); margin-bottom: 20px; }
+
+    /* === BACK LINK === */
+    .back-link {
+      display: inline-flex; align-items: center; gap: 6px;
+      font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: .08em;
+      color: var(--muted); text-decoration: none;
+      padding: 6px 12px; border: 1px solid var(--border); border-radius: 6px;
+      transition: all .2s;
+    }
+    .back-link:hover { color: var(--text); border-color: var(--border2); background: var(--bg2); }
+
+    /* === GRADE BADGES === */
+    .grade-badge {
+      display: inline-flex; align-items: center; justify-content: center;
+      font-family: var(--display); font-weight: 800;
+      border-radius: 10px;
+    }
+    .grade-badge.grade-Ap { background: rgba(16,217,126,.2); color: var(--bull); border: 1px solid var(--bull-bd); }
+    .grade-badge.grade-A  { background: rgba(16,217,126,.15); color: var(--bull); border: 1px solid rgba(16,217,126,.2); }
+    .grade-badge.grade-B  { background: rgba(56,189,248,.15); color: var(--accent); border: 1px solid rgba(56,189,248,.2); }
+    .grade-badge.grade-C  { background: rgba(245,158,11,.15); color: var(--gold); border: 1px solid rgba(245,158,11,.2); }
+    .grade-badge.grade-D  { background: rgba(244,63,94,.15); color: var(--bear); border: 1px solid var(--bear-bd); }
+    .grade-badge.grade-N  { background: rgba(107,114,128,.15); color: var(--muted); border: 1px solid rgba(107,114,128,.2); }
+
+    /* === DIRECTION BADGES === */
+    .dir-badge {
+      display: inline-flex; align-items: center; gap: 5px;
+      font-family: var(--mono); font-size: 10px; font-weight: 600;
+      text-transform: uppercase; letter-spacing: .06em;
+      padding: 3px 10px; border-radius: 5px;
+    }
+    .dir-BULL { background: var(--bull-dim); color: var(--bull); border: 1px solid var(--bull-bd); }
+    .dir-NEUTRAL { background: var(--neutral-dim); color: var(--neutral); border: 1px solid rgba(245,158,11,.25); }
+    .dir-BEAR { background: var(--bear-dim); color: var(--bear); border: 1px solid var(--bear-bd); }
+
+    .sector-pill {
+      font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: .06em;
+      color: var(--accent); background: var(--accent-dim); border: 1px solid rgba(56,189,248,.2);
+      padding: 3px 10px; border-radius: 5px;
+    }
+
+    /* === SECTION TITLES === */
+    .section-title {
+      font-family: var(--display); font-size: 15px; font-weight: 700; letter-spacing: -.2px;
+      margin-bottom: 16px; display: flex; align-items: center; gap: 10px; color: var(--text);
+    }
+    .section-tag {
+      font-family: var(--mono); font-size: 10px; padding: 2px 8px;
+      border-radius: 4px; font-weight: 400; background: var(--bg3); color: var(--muted);
+      text-transform: uppercase; letter-spacing: .06em;
+    }
+
+    /* === DETAIL HEADER === */
+    .detail-header {
+      padding-bottom: 28px;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 32px;
+    }
+    .dh-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
+    .dh-main { display: flex; align-items: flex-start; gap: 20px; margin-bottom: 20px; }
+    .dh-grade-large {
+      width: 76px; height: 76px; flex-shrink: 0;
+      font-size: 30px;
+    }
+    .dh-info h1 {
+      font-family: var(--display); font-size: 36px; font-weight: 800; letter-spacing: -.5px;
+      line-height: 1.1; color: var(--text);
+    }
+    .dh-info .dh-company { font-size: 14px; color: var(--muted2); margin-top: 4px; margin-bottom: 10px; }
+    .dh-badges { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+
+    /* Score Hero */
+    .score-hero {
+      background: var(--bg2); border: 1px solid var(--border);
+      border-radius: 12px; padding: 18px 20px;
+    }
+    .score-hero-header { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 10px; }
+    .score-hero-val { font-family: var(--display); font-size: 22px; font-weight: 800; color: var(--bull); }
+    .score-hero-sub { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+    .score-hero-track {
+      height: 12px; background: rgba(255,255,255,.05);
+      border-radius: 6px; position: relative; margin-bottom: 8px;
+    }
+    .score-hero-fill {
+      height: 12px; border-radius: 6px;
+      background: linear-gradient(90deg, var(--bull-dim), var(--bull));
+      transition: width 1s cubic-bezier(.4,0,.2,1);
+    }
+    .score-hero-threshold {
+      position: absolute; top: -6px;
+      width: 2px; height: 24px; background: var(--accent);
+      border-radius: 1px;
+    }
+    .score-hero-threshold-label {
+      position: absolute; top: -22px;
+      font-family: var(--mono); font-size: 9px; color: var(--accent);
+      transform: translateX(-50%); white-space: nowrap;
+    }
+    .score-hero-labels { display: flex; justify-content: space-between; }
+    .score-hero-labels span { font-family: var(--mono); font-size: 10px; color: var(--muted); }
+
+    /* === INVESTIGATION SUMMARY === */
+    .investigation-summary {
+      background: linear-gradient(135deg, rgba(16,217,126,.05), rgba(16,217,126,.01));
+      border: 1px solid var(--bull-bd); border-radius: 16px;
+      padding: 24px; margin-bottom: 32px;
+    }
+    .inv-title {
+      font-family: var(--display); font-size: 16px; font-weight: 700; color: var(--bull);
+      margin-bottom: 6px; display: flex; align-items: center; gap: 8px;
+    }
+    .inv-subtitle { font-size: 12px; color: var(--muted); margin-bottom: 18px; }
+    .inv-reason {
+      font-size: 13px; color: var(--muted2); line-height: 1.7;
+      background: rgba(0,0,0,.2); border-radius: 8px; padding: 12px 14px;
+      border-left: 3px solid var(--bull); margin-bottom: 18px;
+    }
+    .inv-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+    @media(max-width: 768px) { .inv-cards { grid-template-columns: 1fr; } }
+    .inv-card {
+      background: rgba(0,0,0,.25); border: 1px solid var(--border);
+      border-radius: 12px; padding: 16px;
+    }
+    .inv-card-icon { font-size: 18px; margin-bottom: 8px; }
+    .inv-card-label {
+      font-family: var(--mono); font-size: 10px; text-transform: uppercase;
+      letter-spacing: .08em; color: var(--muted); margin-bottom: 8px;
+    }
+    .inv-card-text { font-size: 12px; color: var(--text); line-height: 1.65; }
+
+    /* === SIGNALS DEEP === */
+    .signals-deep { margin-bottom: 40px; }
+    .signal-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    @media(max-width: 900px) { .signal-cards { grid-template-columns: 1fr; } }
+
+    .signal-card {
+      background: var(--bg2); border: 1px solid var(--border);
+      border-radius: 14px; padding: 20px;
+      border-left: 3px solid transparent;
+      transition: border-color .2s;
+    }
+    .signal-card:hover { border-color: var(--border2); }
+    .signal-card.sig-pos { border-left-color: var(--bull); }
+    .signal-card.sig-neg { border-left-color: var(--bear); }
+    .signal-card.sig-zero { border-left-color: var(--muted); }
+    .signal-card.sig-primary { border-left-color: var(--gold); }
+
+    .sc-head { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px; }
+    .sc-left { flex: 1; }
+    .sc-code { font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+    .sc-name {
+      font-family: var(--display); font-size: 14px; font-weight: 700;
+      color: var(--text); margin-top: 2px; display: flex; align-items: center; gap: 6px;
+    }
+    .primary-tag {
+      font-family: var(--mono); font-size: 9px; padding: 1px 6px;
+      border-radius: 3px; background: rgba(245,158,11,.15); color: var(--gold);
+      border: 1px solid rgba(245,158,11,.3); text-transform: uppercase; letter-spacing: .05em;
+    }
+    .sc-right { text-align: right; flex-shrink: 0; }
+    .sc-score { font-family: var(--mono); font-size: 24px; font-weight: 700; }
+    .sc-score.pos { color: var(--bull); }
+    .sc-score.neg { color: var(--bear); }
+    .sc-score.zero { color: var(--muted); }
+    .sc-max { font-family: var(--mono); font-size: 10px; color: var(--muted); }
+
+    .sc-bar-track {
+      height: 6px; background: rgba(255,255,255,.05);
+      border-radius: 3px; margin: 8px 0 10px; overflow: hidden;
+    }
+    .sc-bar-fill {
+      height: 6px; border-radius: 3px;
+      transition: width .8s cubic-bezier(.4,0,.2,1);
+    }
+    .sc-bar-fill.pos { background: var(--bull); }
+    .sc-bar-fill.neg { background: var(--bear); float: right; }
+    .sc-bar-fill.zero { background: var(--muted); width: 2px !important; }
+
+    .sc-measure {
+      font-family: var(--mono); font-size: 10px; color: var(--accent);
+      margin-bottom: 10px; padding: 4px 8px; background: var(--accent-dim);
+      border-radius: 4px; display: inline-block;
+    }
+    .sc-narrative { font-size: 12px; color: var(--muted2); line-height: 1.7; }
+    .sc-narrative strong { color: var(--text); font-weight: 600; }
+    .sc-narrative .hi { color: var(--bull); font-family: var(--mono); }
+    .sc-narrative .warn { color: var(--bear); font-family: var(--mono); }
+    .sc-narrative .accent { color: var(--accent); font-family: var(--mono); }
+
+    /* === CHART SECTION === */
+    .chart-section { margin-bottom: 40px; }
+    .chart-wrap {
+      background: #0d0f14; border: 1px solid var(--border);
+      border-radius: 12px; overflow: hidden;
+    }
+    #detailChartContainer { width: 100%; height: 400px; }
+    #detailVolContainer   { width: 100%; height: 80px; background: #0d0f14; }
+    .chart-legend {
+      display: flex; gap: 16px; flex-wrap: wrap; padding: 10px 16px;
+      border-top: 1px solid var(--border); background: var(--bg2);
+    }
+    .legend-item { display: flex; align-items: center; gap: 6px; font-family: var(--mono); font-size: 10px; color: var(--muted); }
+    .legend-dot { width: 10px; height: 3px; border-radius: 2px; }
+
+    /* === TECH DASHBOARD === */
+    .tech-dashboard {
+      display: grid; grid-template-columns: repeat(4, 1fr);
+      gap: 14px; margin-bottom: 32px;
+    }
+    @media(max-width: 900px) { .tech-dashboard { grid-template-columns: repeat(2, 1fr); } }
+    @media(max-width: 500px)  { .tech-dashboard { grid-template-columns: 1fr; } }
+
+    .td-panel {
+      background: var(--bg2); border: 1px solid var(--border);
+      border-radius: 14px; padding: 18px; text-align: center;
+    }
+    .td-title {
+      font-family: var(--mono); font-size: 10px; text-transform: uppercase;
+      letter-spacing: .07em; color: var(--muted); margin-bottom: 14px;
+    }
+    .td-value {
+      font-family: var(--display); font-size: 28px; font-weight: 800;
+      line-height: 1;
+    }
+    .td-label { font-size: 11px; color: var(--muted); margin-top: 8px; line-height: 1.4; }
+    .td-sub { font-family: var(--mono); font-size: 10px; color: var(--muted); margin-top: 6px; }
+
+    /* RSI Gauge */
+    .rsi-gauge-wrap { margin: 4px auto 10px; display: flex; justify-content: center; }
+    .rsi-val { font-family: var(--mono); font-size: 22px; font-weight: 700; }
+
+    /* 52W bar */
+    .range-track {
+      height: 8px; background: linear-gradient(90deg, var(--bear), var(--neutral), var(--bull));
+      border-radius: 4px; position: relative; margin: 12px 0 6px;
+    }
+    .range-cursor {
+      position: absolute; top: -5px;
+      width: 3px; height: 18px; background: white;
+      border-radius: 2px; transform: translateX(-50%);
+      box-shadow: 0 0 6px rgba(255,255,255,.5);
+    }
+    .range-labels { display: flex; justify-content: space-between; font-family: var(--mono); font-size: 9px; color: var(--muted); }
+
+    /* === TRADE PLAN === */
+    .trade-plan-section {
+      background: var(--bg2); border: 1px solid var(--border);
+      border-radius: 16px; padding: 24px; margin-bottom: 32px;
+    }
+    .tp-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; margin-bottom: 18px; }
+    @media(max-width: 900px) { .tp-grid { grid-template-columns: repeat(3, 1fr); } }
+    @media(max-width: 500px)  { .tp-grid { grid-template-columns: repeat(2, 1fr); } }
+
+    .tp-box {
+      background: var(--bg3); border: 1px solid var(--border);
+      border-radius: 10px; padding: 12px 10px; text-align: center;
+    }
+    .tp-box.tp-entry { border-color: rgba(255,255,255,.15); }
+    .tp-box.tp-sl    { border-color: var(--bear-bd); }
+    .tp-box.tp-t1    { border-color: rgba(16,217,126,.2); }
+    .tp-box.tp-t2    { border-color: rgba(16,217,126,.15); }
+    .tp-box.tp-t3    { border-color: rgba(16,217,126,.1); }
+    .tp-box.tp-rr    { border-color: rgba(56,189,248,.2); background: var(--accent-dim); }
+
+    .tp-label { font-family: var(--mono); font-size: 9px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin-bottom: 6px; }
+    .tp-price { font-family: var(--mono); font-size: 14px; font-weight: 600; }
+    .tp-pct   { font-family: var(--mono); font-size: 10px; margin-top: 3px; }
+    .tp-sl .tp-price { color: var(--bear); }
+    .tp-sl .tp-pct   { color: var(--bear); }
+    .tp-t1 .tp-price, .tp-t2 .tp-price, .tp-t3 .tp-price { color: var(--bull); }
+    .tp-t1 .tp-pct, .tp-t2 .tp-pct, .tp-t3 .tp-pct { color: var(--bull); }
+    .tp-rr .tp-price { color: var(--accent); font-size: 18px; }
+
+    .tp-atr-note {
+      font-size: 12px; color: var(--muted); line-height: 1.7;
+      border-top: 1px solid var(--border); padding-top: 14px;
+    }
+    .tp-atr-note strong { color: var(--muted2); }
+
+    /* === BOTTOM GRID === */
+    .bottom-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 40px; }
+    @media(max-width: 768px) { .bottom-grid { grid-template-columns: 1fr; } }
+
+    .fundamentals, .market-context {
+      background: var(--bg2); border: 1px solid var(--border);
+      border-radius: 14px; padding: 20px;
+    }
+    .fund-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    .fund-item { }
+    .fund-label { font-family: var(--mono); font-size: 9px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin-bottom: 4px; }
+    .fund-value { font-family: var(--mono); font-size: 14px; font-weight: 500; color: var(--text); }
+
+    .ctx-item { margin-bottom: 14px; padding-bottom: 14px; border-bottom: 1px solid var(--border); }
+    .ctx-item:last-child { margin-bottom: 0; padding-bottom: 0; border-bottom: none; }
+    .ctx-label { font-family: var(--mono); font-size: 9px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin-bottom: 6px; }
+    .ctx-value { font-size: 12px; color: var(--muted2); line-height: 1.6; }
+
+    /* === FOOTER === */
+    .page-footer {
+      text-align: center; font-size: 11px; color: var(--muted);
+      padding-top: 20px; border-top: 1px solid var(--border);
+      line-height: 1.8;
+    }
+
+    @media(max-width: 640px) {
+      .dh-info h1 { font-size: 26px; }
+      .dh-grade-large { width: 56px; height: 56px; font-size: 22px; }
+      #detailChartContainer { height: 280px; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Loading overlay -->
+  <div class="detail-loading" id="detailLoading">
+    <div class="spinner"></div>
+    <div class="loading-text">Loading stock analysis…</div>
+  </div>
+
+  <div class="container" id="mainContent" style="display:none">
+
+    <!-- Back nav -->
+    <div style="margin-bottom:20px">
+      <a href="/" class="back-link">← Dashboard</a>
+    </div>
+
+    <!-- HEADER -->
+    <div class="detail-header" id="detailHeader"></div>
+
+    <!-- INVESTIGATION SUMMARY -->
+    <div id="investigationSummary"></div>
+
+    <!-- SIGNALS DEEP -->
+    <section class="signals-deep">
+      <h2 class="section-title">Signal Investigation <span class="section-tag">11 signals</span></h2>
+      <div class="signal-cards" id="signalCards"></div>
+    </section>
+
+    <!-- CHART -->
+    <section class="chart-section">
+      <h2 class="section-title">30-Week Price Chart <span class="section-tag">EMA 8W · EMA 21W · Plan levels</span></h2>
+      <div class="chart-wrap">
+        <div id="detailChartContainer"></div>
+        <div id="detailVolContainer"></div>
+        <div class="chart-legend" id="chartLegend"></div>
+      </div>
+    </section>
+
+    <!-- TECH DASHBOARD -->
+    <section>
+      <h2 class="section-title">Technical Dashboard</h2>
+      <div class="tech-dashboard" id="techDashboard"></div>
+    </section>
+
+    <!-- TRADE PLAN -->
+    <section>
+      <h2 class="section-title">Trade Plan <span class="section-tag">ATR-based</span></h2>
+      <div class="trade-plan-section" id="tradePlanSection"></div>
+    </section>
+
+    <!-- BOTTOM GRID -->
+    <div class="bottom-grid">
+      <section class="fundamentals">
+        <h2 class="section-title">Fundamentals</h2>
+        <div class="fund-grid" id="fundamentalsGrid"></div>
+      </section>
+      <section class="market-context">
+        <h2 class="section-title">Market Context</h2>
+        <div id="marketContextBody"></div>
+      </section>
+    </div>
+
+    <!-- FOOTER -->
+    <div class="page-footer">
+      NEPSE Predictor V8 · Not financial advice · For educational purposes only<br>
+      Model accuracy based on walk-forward backtests on past weekly data
+    </div>
+
+  </div><!-- /container -->
+
+<script>
+/* ── helpers ── */
+function fmt(n) {
+  if (n == null || isNaN(n)) return '—';
+  if (n >= 1e7) return (n/1e7).toFixed(2) + 'Cr';
+  if (n >= 1e5) return (n/1e5).toFixed(2) + 'L';
+  return n.toLocaleString('en-IN', { maximumFractionDigits: 2 });
+}
+function pct(a, b) {
+  if (!a || !b || b === 0) return '—';
+  const v = ((a - b) / Math.abs(b) * 100);
+  return (v >= 0 ? '+' : '') + v.toFixed(1) + '%';
+}
+function getAPIBase() {
+  return window.location.origin;
+}
+function gradeClass(g) {
+  return g === 'A+' ? 'grade-Ap' : 'grade-' + g;
+}
+
+/* ── EMA helper ── */
+function computeEMA(candles, period) {
+  if (!candles || candles.length < period) return [];
+  const closes = candles.map(c => c.close);
+  const k = 2 / (period + 1);
+  let ema = closes.slice(0, period).reduce((a, b) => a + b, 0) / period;
+  const result = [{ time: candles[period - 1].time, value: parseFloat(ema.toFixed(2)) }];
+  for (let i = period; i < closes.length; i++) {
+    ema = closes[i] * k + ema * (1 - k);
+    result.push({ time: candles[i].time, value: parseFloat(ema.toFixed(2)) });
+  }
+  return result;
+}
+
+/* ══════════════════════════════
+   SIGNAL NARRATIVE FUNCTIONS
+   ══════════════════════════════ */
+
+function narrativeS1(score, data) {
+  const c = data.candles || [];
+  const n = c.length;
+  const w0 = n >= 1 ? c[n-1] : null;
+  const w1 = n >= 2 ? c[n-2] : null;
+  const w2 = n >= 3 ? c[n-3] : null;
+  const dir = x => x ? (x.close >= x.open ? '▲ Bull' : '▼ Bear') : '—';
+  const chg = x => x ? (((x.close - x.open)/Math.abs(x.open||1))*100).toFixed(1)+'%' : '—';
+  const weekLines = `Current: <span class="${w0&&w0.close>=w0.open?'hi':'warn'}">${dir(w0)} (${chg(w0)})</span> · Prior: <span class="${w1&&w1.close>=w1.open?'hi':'warn'}">${dir(w1)} (${chg(w1)})</span> · 2-ago: <span class="${w2&&w2.close>=w2.open?'hi':'warn'}">${dir(w2)} (${chg(w2)})</span>`;
+  const msgs = {
+    30: `<strong>Maximum momentum (3/3 bull).</strong> ${weekLines}. Recency-weighted: 40% current + 35% prior + 25% two-weeks-ago. All three weeks confirmed bullish — strong directional bias entering this week.`,
+    18: `<strong>Mixed momentum, bull-leaning (2/3 bull).</strong> ${weekLines}. Two of three weeks positive; recency weighting applies. Model treats this as bullish but not at maximum conviction.`,
+    8:  `<strong>Weak momentum (1/3 bull).</strong> ${weekLines}. Only the most recent week was positive, but prior weeks bearish create drag. Below 50% conviction threshold.`,
+    0:  `<strong>Bear momentum (0/3 bull).</strong> ${weekLines}. All three observed weeks were bearish — a strong directional headwind. This signal contributes zero to the score.`
+  };
+  return msgs[score] || `<strong>Momentum score: ${score}/30.</strong> ${weekLines}.`;
+}
+
+function narrativeS2(score, data) {
+  const sigs = data.signals;
+  const streak = sigs.streak || 0;
+  const dir = sigs.streak_dir || 'bull';
+  if (score === 25) return `<strong>Streak guard: clear.</strong> Only <span class="hi">${streak}</span> consecutive ${dir} week${streak!==1?'s':''} before this one. Short streaks pose no exhaustion risk — fresh momentum. Full 25 points awarded.`;
+  if (score === 12) return `<strong>Streak guard: caution.</strong> <span class="warn">${streak}-week ${dir} streak</span> detected. At 3 consecutive weeks, mean-reversion probability increases statistically. Score halved (12/25) — the model applies a reversal tax on extended runs.`;
+  return `<strong>Streak guard: triggered.</strong> <span class="warn">${streak}-week ${dir} streak</span> — 4+ consecutive same-direction weeks triggers the exhaustion gate. Historical backtests show high reversal probability after this length. <strong>Score zeroed out (0/25).</strong>`;
+}
+
+function narrativeS3(score, data) {
+  const c = data.candles || [];
+  const n = c.length;
+  if (n < 2) return `<strong>Volume score: ${score}/10.</strong> Insufficient candle data to compute vs. 12W median.`;
+  const curVol = c[n-1].volume || 0;
+  const hist = c.slice(-13, -1).map(x => (x.volume||0)).filter(Boolean).sort((a,b)=>a-b);
+  const med = hist.length ? hist[Math.floor(hist.length/2)] : null;
+  const ratio = med && med > 0 ? (curVol / med) : null;
+  const ratioStr = ratio ? `${(ratio*100).toFixed(0)}% of 12W median` : 'vs median: insufficient data';
+  const curWeekBull = n >= 1 && c[n-1].close >= c[n-1].open;
+
+  if (score === 0) return `<strong>Distribution signal detected.</strong> This week was a <span class="warn">bearish candle on above-average volume</span> (${ratioStr}). Classic distribution: sellers dominated at elevated participation — smart money selling into strength. This is the only signal that can zero out the volume component.`;
+  if (score === 10) return `<strong>Volume confirming the move.</strong> ${curWeekBull ? 'Bullish' : 'Neutral'} week with <span class="hi">above-average volume</span> (${ratioStr}). Note: V8 caps this at 10 (reduced from 25 in earlier versions) because high-volume green weeks also carry distribution risk — buyers AND sellers transacting heavily.`;
+  return `<strong>Volume within normal range</strong> (${ratioStr}). No extreme signal in either direction — healthy, unremarkable participation. Score: ${score}/10.`;
+}
+
+function narrativeS4(score, data) {
+  const c = data.candles || [];
+  const closes = c.slice(-9, -1).map(x => x.close).filter(Boolean);
+  const avg = closes.length ? closes.reduce((a,b)=>a+b,0)/closes.length : null;
+  const cur = data.current_price || 0;
+  const diffPct = avg ? ((cur - avg)/avg*100).toFixed(1) : null;
+  const avgStr = avg ? `NPR ${avg.toFixed(1)}` : 'N/A';
+  const diffStr = diffPct !== null ? `${diffPct > 0 ? '+' : ''}${diffPct}% vs 8W avg` : '';
+
+  const note = `<strong>⚠ V8 INVERTED LOGIC:</strong> In the V8 recalibration, this signal was flipped. Ablation study showed that price ABOVE its 8-week average actually correlates with model misses — stocks running hot tend to mean-revert. Price BELOW average = bounce candidate.`;
+
+  if (score === 15) return `${note} Current: <span class="hi">NPR ${cur} (${diffStr})</span>, 8W avg: ${avgStr}. Price is significantly depressed — in the <strong>bounce zone</strong>. Maximum 15 points for potential mean-reversion.`;
+  if (score === 8) return `${note} Current: <span class="hi">NPR ${cur} (${diffStr})</span>, 8W avg: ${avgStr}. Price slightly below average — mild bullish lean from the inversion.`;
+  if (score === 3) return `${note} Current: NPR ${cur} (${diffStr}), 8W avg: ${avgStr}. Price near the 8-week average — neutral territory.`;
+  if (score <= 0) return `${note} Current: <span class="warn">NPR ${cur} (${diffStr})</span>, 8W avg: ${avgStr}. Price extended <strong>above</strong> its 8-week average — <span class="warn">reversion risk</span>. Penalty applied (${score} pts).`;
+  return `${note} Current: NPR ${cur} (${diffStr}), 8W avg: ${avgStr}. Score: ${score}/15.`;
+}
+
+function narrativeS5(score, data) {
+  const sector = data.sector || 'Unknown';
+  if (score >= 20) return `<strong>Sector tailwind confirmed.</strong> The <span class="hi">${sector}</span> sector sub-index was trending <span class="hi">UP</span> this week. Sector tide lifting all boats — favorable macro positioning for individual picks within the group. Maximum +20 points.`;
+  if (score >= 10) return `<strong>Sector direction unavailable</strong> for "${sector}". Neutral treatment applied — no bonus and no penalty. Score: +10 (estimated neutral).`;
+  return `<strong>Sector headwind active.</strong> The <span class="warn">${sector}</span> sector sub-index was trending <span class="warn">DOWN</span> this week (-10 pts). To score BULL despite a falling sector, this stock must compensate via stronger individual signals.`;
+}
+
+function narrativeS6(score, data) {
+  const rsi = (data.signals.rsi_value || 50).toFixed(1);
+  const zones = [
+    [0,  25,  35, 'extremely oversold', 'hi', 'the highest-conviction mean-reversion zone. Historically, stocks at RSI <25 in NEPSE have the highest probability of bouncing the following week.'],
+    [25, 35,  28, 'heavily oversold',   'hi', 'strong bounce territory. V8 ablation study: RSI below 35 is one of the most reliable predictors in the model (+11.75 correlation).'],
+    [35, 45,  18, 'oversold zone',      'hi', 'below the neutral 50 line. Moderate mean-reversion potential — market has sold off beyond fair value.'],
+    [45, 55,   8, 'neutral',            'accent', 'no directional RSI signal. Near the 50 midline.'],
+    [55, 65,  -2, 'approaching overbought', 'warn', 'buyers slightly stretched. Minor penalty applied.'],
+    [65, 72, -10, 'overbought',         'warn', 'buyers extended. Historically associated with model misses in BULL calls. Penalty: -10.'],
+    [72, 100,-20, 'very overbought',    'warn', 'hard gate: RSI above 72 effectively blocks BULL predictions. Score: -20. This is why even a strong stock cannot score BULL during RSI extremes.']
+  ];
+  const zone = zones.find(([lo,,,,]) => parseFloat(rsi) >= lo) || zones[zones.length-1];
+  const [,,,label,cls,desc] = zone;
+  return `<strong>RSI (14-week Wilder): <span class="${cls}">${rsi}</span></strong> — <em>${label}</em>. This is ${desc}<br><br><span style="font-size:11px;color:var(--gold)">★ PRIMARY DRIVER: In V8 ablation testing across 306 historical predictions, S6 RSI had the highest single-signal correlation (+11.75) — more than double the next strongest signal.</span>`;
+}
+
+function narrativeS7(score, data) {
+  if (score === 10) return `<strong>Fresh golden cross this week.</strong> EMA 8W just crossed <span class="hi">ABOVE</span> EMA 21W — a fresh bullish crossover. This is the highest-conviction EMA signal (+10). Early-entry opportunity as the trend structure flips bullish at the structural level.`;
+  if (score === 2)  return `<strong>Mature uptrend.</strong> EMA 8W is above EMA 21W (established bullish trend), but no fresh crossover this week. V8 reduced this from 15 to +2 — ablation showed mature trends have weak week-over-week predictive power once already priced in.`;
+  if (score === -5) return `<strong>Bearish EMA structure.</strong> EMA 8W is <span class="warn">below</span> EMA 21W — sustained downtrend structure. No crossover event, but the trend is negative. Score: -5.`;
+  if (score === -10) return `<strong>Fresh death cross this week.</strong> EMA 8W just crossed <span class="warn">BELOW</span> EMA 21W — structural trend reversal to bearish. The model applies the maximum EMA penalty (-10) for fresh crossovers, mirroring the urgency of a golden cross in reverse.`;
+  return `EMA crossover score: <strong>${score}/10</strong>. EMAs in neutral or transitional state.`;
+}
+
+function narrativeS8(score, data) {
+  const sector = data.sector || 'sector';
+  if (score === 15) return `<strong>Outperforming sector peers by 2%+.</strong> This stock's weekly return exceeded the <span class="hi">${sector}</span> sector average by at least 2 percentage points. <span class="hi">Relative strength confirmed</span> — institutional money rotating specifically into this name.`;
+  if (score >= 5)   return `<strong>In-line with ${sector} peers.</strong> Weekly return within ±3% of sector average. Neutral relative strength — no significant divergence in either direction. Score: ${score}/15.`;
+  return `<strong>Underperforming ${sector} peers by 3%+.</strong> <span class="warn">Relative weakness detected</span> — money rotating OUT of this stock within the sector. This is a headwind signal even when the sector itself is doing well. Score: ${score}/15.`;
+}
+
+function narrativeS9(score, data) {
+  const hi = data.week52_high, lo = data.week52_low, cur = data.current_price;
+  const pos = (hi && lo && hi > lo) ? ((cur - lo)/(hi - lo)*100).toFixed(1) : null;
+  const posStr = pos !== null ? `<span class="${parseFloat(pos)<40?'hi':parseFloat(pos)>85?'warn':'accent'}">${pos}%</span> of 52W range` : 'position: N/A';
+  const rangeStr = hi && lo ? `52W range: NPR ${lo} – NPR ${hi}` : '';
+
+  if (score === 15) return `<strong>Deep value zone (bottom 20% of 52W range).</strong> At ${posStr} — ${rangeStr}. This amplifies the RSI oversold signal: the stock is not just technically oversold, it's also near historically low price levels. Strong mean-reversion candidate. Score: +15.`;
+  if (score === 10) return `<strong>Value area (20–40% of range).</strong> At ${posStr} — ${rangeStr}. Lower half of the annual range — historically a favorable entry zone. Score: +10.`;
+  if (score === 5)  return `<strong>Mid-range (40–65%).</strong> At ${posStr} — ${rangeStr}. Neutral 52W positioning. No strong directional signal from this metric alone.`;
+  if (score === 0)  return `<strong>Upper range (65–85%).</strong> At ${posStr} — ${rangeStr}. Approaching resistance territory. No bonus or penalty — but overhead supply increases.`;
+  return `<strong>Near 52-week high (>85% of range).</strong> At ${posStr} — ${rangeStr}. <span class="warn">Significant overhead resistance</span>. Historical data shows mean-reversion risk is elevated at these levels. Penalty: ${score} pts.`;
+}
+
+function narrativeS10(score, data) {
+  const wMap = { 10: ['Week 1', 'days 1–7', 'Institutional and retail liquidity is highest at month-start — fresh capital allocated for the new month. Historically the most favorable entry window.'],
+                  5: ['Week 2', 'days 8–14', 'Liquidity remains decent in week 2. Mild positive effect as month-start momentum carries forward.'],
+                  0: ['Week 3', 'days 15–21', 'Mid-month neutral zone. No strong seasonal bias in either direction.'],
+                 '-5': ['Week 4', 'days 22+', 'Month-end period. Institutional rebalancing and profit-taking can create artificial selling pressure. Tighter exit windows. Minor penalty (-5 pts).'] };
+  const info = wMap[String(score)] || wMap['0'];
+  return `<strong>Calendar: ${info[0]} (${info[1]}).</strong> ${info[2]}`;
+}
+
+function narrativeS11(score, data) {
+  if (score === 0) return `<strong>NEPSE market breadth: flat or positive.</strong> No market-wide suppression applied. When NEPSE is not in a down week, the S11 gate is neutral (0 pts). Individual stock picks are not penalized by broad market selling.`;
+  if (score === -12) return `<strong>NEPSE market was moderately negative (-1% to -2%) last week.</strong> <span class="warn">Suppression-only signal: -12 pts applied.</span> A falling tide reduces BULL confidence — this stock scored BULL despite a headwind, which means its individual signals (especially RSI and momentum) are strong enough to overcome the market drag.`;
+  return `<strong>NEPSE market was clearly down (≤ -2%) last week.</strong> <span class="warn">Maximum suppression: -22 pts applied.</span> Strong market-wide selling pressure. The fact that this stock still scores above the BULL threshold (115) despite a -22 market penalty demonstrates particularly strong individual signal strength.`;
+}
+
+/* ══════════════════════════════
+   SIGNAL DEFINITIONS
+   ══════════════════════════════ */
+const SIGNAL_DEFS = [
+  { key:'s1_momentum',    code:'S1',  name:'Momentum',         fullName:'3-Week Weighted Momentum',      range:{min:0,   max:30},  measure: d => { const c=d.candles||[],n=c.length; if(n<1) return '—'; const dirs=['Current','Prior','2-ago'].map((l,i)=>{ const w=c[n-1-i]; return w?(w.close>=w.open?l+': Bull':l+': Bear'):''; }).filter(Boolean); return dirs.join(' · '); }, narrative: narrativeS1 },
+  { key:'s2_streak',      code:'S2',  name:'Streak Guard',     fullName:'Consecutive-Week Streak Safety', range:{min:0,   max:25},  measure: d => `${d.signals.streak||0} consecutive ${d.signals.streak_dir||'bull'} week${(d.signals.streak||0)!==1?'s':''}`, narrative: narrativeS2 },
+  { key:'s3_volume',      code:'S3',  name:'Volume Quality',   fullName:'Volume vs 12-Week Median',       range:{min:0,   max:10},  measure: d => { const c=d.candles||[],n=c.length; if(n<2) return '—'; const cur=c[n-1].volume||0; const hist=c.slice(-13,-1).map(x=>x.volume||0).filter(Boolean).sort((a,b)=>a-b); const med=hist.length?hist[Math.floor(hist.length/2)]:null; return med?`${(cur/1000).toFixed(0)}K vs median ${(med/1000).toFixed(0)}K`:'Insufficient data'; }, narrative: narrativeS3 },
+  { key:'s4_position',    code:'S4',  name:'Price Position',   fullName:'vs 8-Week Average (V8 Inverted)',range:{min:-5,  max:15},  measure: d => { const c=d.candles||[]; const closes=c.slice(-9,-1).map(x=>x.close).filter(Boolean); const avg=closes.length?closes.reduce((a,b)=>a+b,0)/closes.length:null; return avg?`NPR ${(d.current_price||0).toFixed(1)} vs 8W avg ${avg.toFixed(1)} (${((((d.current_price||0)-avg)/avg)*100).toFixed(1)}%)`:'—'; }, narrative: narrativeS4 },
+  { key:'s5_sector',      code:'S5',  name:'Sector Index',     fullName:'Sector Sub-Index Direction',     range:{min:-10, max:20},  measure: d => `Sector: ${d.sector||'—'}`, narrative: narrativeS5 },
+  { key:'s6_rsi',         code:'S6',  name:'RSI',              fullName:'RSI Mean-Reversion',             range:{min:-20, max:35},  isPrimary:true, measure: d => `RSI 14W (Wilder): ${(d.signals.rsi_value||0).toFixed(1)}`, narrative: narrativeS6 },
+  { key:'s7_ema',         code:'S7',  name:'EMA Crossover',    fullName:'8W / 21W EMA Cross',             range:{min:-10, max:10},  measure: d => '8W EMA vs 21W EMA crossover', narrative: narrativeS7 },
+  { key:'s8_rel_strength',code:'S8',  name:'Rel. Strength',    fullName:'Relative Strength vs Peers',     range:{min:-10, max:15},  measure: d => `vs ${d.sector||'sector'} peer average`, narrative: narrativeS8 },
+  { key:'s9_week52',      code:'S9',  name:'52W Position',     fullName:'52-Week Range Position',         range:{min:-8,  max:15},  measure: d => { const hi=d.week52_high,lo=d.week52_low,cur=d.current_price; if(!hi||!lo||hi===lo) return '—'; return `${((cur-lo)/(hi-lo)*100).toFixed(1)}% of range (${lo}–${hi})`; }, narrative: narrativeS9 },
+  { key:'s10_monthly',    code:'S10', name:'Calendar Cycle',   fullName:'Monthly Liquidity Cycle',        range:{min:-5,  max:10},  measure: d => { const s=d.signals.s10_monthly; return s===10?'Week 1 (days 1–7)':s===5?'Week 2 (days 8–14)':s===0?'Week 3 (days 15–21)':'Week 4 (days 22+)'; }, narrative: narrativeS10 },
+  { key:'s11_market',     code:'S11', name:'NEPSE Market',     fullName:'NEPSE Market Breadth Gate',      range:{min:-22, max:0},   measure: d => { const s=d.signals.s11_market; return s===0?'Market flat/up — no suppression':s===-12?'NEPSE down -1% to -2% last week':'NEPSE down ≤-2% last week'; }, narrative: narrativeS11 },
+];
+
+/* ══════════════════════════════
+   RENDER FUNCTIONS
+   ══════════════════════════════ */
+
+function renderHeader(d) {
+  const score = d.score || 0;
+  const maxScore = 185;
+  const threshold = d.signals.bull_threshold || 115;
+  const fillPct = Math.min(100, score / maxScore * 100);
+  const threshPct = threshold / maxScore * 100;
+  const g = d.grade || 'N';
+  const gClass = gradeClass(g);
+
+  document.getElementById('pageTitle').textContent = `${d.symbol} Analysis — NEPSE Predictor`;
+
+  document.getElementById('detailHeader').innerHTML = `
+    <div class="dh-main">
+      <div class="grade-badge ${gClass} dh-grade-large">${g}</div>
+      <div class="dh-info">
+        <h1>${d.symbol}</h1>
+        <div class="dh-company">${d.name || ''}</div>
+        <div class="dh-badges">
+          <span class="sector-pill">${d.sector || '—'}</span>
+          <span class="dir-badge dir-${d.prediction || 'NEUTRAL'}">
+            ${d.prediction === 'BULL' ? '▲' : d.prediction === 'BEAR' ? '▼' : '—'} ${d.prediction || 'NEUTRAL'}
+          </span>
+          ${d.signals.atr_flag ? '<span class="dir-badge dir-BEAR" style="font-size:10px">⚠ High Volatility</span>' : ''}
+        </div>
+      </div>
+    </div>
+    <div class="score-hero">
+      <div class="score-hero-header">
+        <div>
+          <span class="score-hero-val">${score}</span>
+          <span class="score-hero-sub"> / ${maxScore} total score</span>
+        </div>
+        <span class="score-hero-sub">BULL threshold: ${threshold} &nbsp;|&nbsp; Margin: +${score - threshold} pts</span>
+      </div>
+      <div class="score-hero-track">
+        <div class="score-hero-fill" style="width:${fillPct}%"></div>
+        <div class="score-hero-threshold" style="left:${threshPct}%">
+          <div class="score-hero-threshold-label">Threshold ${threshold}</div>
+        </div>
+      </div>
+      <div class="score-hero-labels">
+        <span>0</span>
+        <span>${maxScore} max</span>
+      </div>
+    </div>
+  `;
+}
+
+function renderInvestigation(d) {
+  const sigs = d.signals;
+  const allSigs = SIGNAL_DEFS.map(def => ({ def, score: sigs[def.key] || 0 }));
+  const posSigs = allSigs.filter(x => x.score > 0).sort((a,b) => b.score - a.score);
+  const negSigs = allSigs.filter(x => x.score < 0);
+
+  // Primary driver: S6 if score >= 18, else top scorer
+  let primary = posSigs.find(x => x.def.key === 's6_rsi' && x.score >= 18) || posSigs[0];
+  const supporting = posSigs.filter(x => x !== primary).slice(0, 4);
+
+  const primaryText = primary
+    ? `<strong>${primary.def.code} ${primary.def.name}</strong> scored <span class="hi">+${primary.score}</span> / ${primary.def.range.max} pts. ${primary.def.key === 's6_rsi' ? `RSI at <span class="hi">${(sigs.rsi_value||0).toFixed(1)}</span> — the strongest predictive signal in V8 (ablation correlation: +11.75).` : `The highest individual signal contribution this week.`}`
+    : 'No dominant bullish signal identified.';
+
+  const supportText = supporting.length
+    ? supporting.map(x => `${x.def.code} ${x.def.name} (+${x.score})`).join(' · ')
+    : 'No additional supporting signals';
+
+  const flags = [];
+  if (negSigs.length) negSigs.forEach(x => flags.push(`${x.def.code} ${x.def.name}: <span class="warn">${x.score}</span>`));
+  if ((sigs.streak || 0) >= 3) flags.push(`Streak: <span class="warn">${sigs.streak}-week ${sigs.streak_dir} run</span> (exhaustion risk)`);
+  if (sigs.atr_flag) flags.push(`<span class="warn">⚠ ATR volatility spike flagged</span>`);
+  const pos52 = d.week52_high && d.week52_low && d.week52_high > d.week52_low
+    ? ((d.current_price - d.week52_low) / (d.week52_high - d.week52_low) * 100) : null;
+  if (pos52 !== null && pos52 > 85) flags.push(`52W position: <span class="warn">${pos52.toFixed(0)}%</span> — near annual high`);
+
+  document.getElementById('investigationSummary').innerHTML = `
+    <div class="investigation-summary">
+      <div class="inv-title">★ Why This Stock Was Picked</div>
+      <div class="inv-subtitle">Score ${d.score}/185 · Threshold ${sigs.bull_threshold||115} · ${posSigs.length} of 11 signals positive</div>
+      <div class="inv-reason">${(d.reason||'').replace(/·/g,'<span style="color:var(--bull);margin:0 4px">·</span>')}</div>
+      <div class="inv-cards">
+        <div class="inv-card">
+          <div class="inv-card-icon">🎯</div>
+          <div class="inv-card-label">Primary Driver</div>
+          <div class="inv-card-text">${primaryText}</div>
+        </div>
+        <div class="inv-card">
+          <div class="inv-card-icon">✅</div>
+          <div class="inv-card-label">Supporting Evidence</div>
+          <div class="inv-card-text">${supportText}</div>
+        </div>
+        <div class="inv-card">
+          <div class="inv-card-icon">${flags.length ? '⚠' : '✓'}</div>
+          <div class="inv-card-label">Risk Flags</div>
+          <div class="inv-card-text">${flags.length ? flags.join('<br>') : '<span style="color:var(--bull)">No red flags detected.</span> Clean signal profile.'}</div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function renderSignals(d) {
+  const sigs = d.signals;
+  let html = '';
+  SIGNAL_DEFS.forEach(def => {
+    const score = sigs[def.key] || 0;
+    const absScore = Math.abs(score);
+    const maxAbs = Math.max(Math.abs(def.range.max), Math.abs(def.range.min));
+    const barPct = maxAbs ? Math.min(100, absScore / maxAbs * 100) : 0;
+    const isPos = score > 0, isNeg = score < 0;
+    const cardClass = def.isPrimary ? 'sig-primary' : isPos ? 'sig-pos' : isNeg ? 'sig-neg' : 'sig-zero';
+    const scoreClass = isPos ? 'pos' : isNeg ? 'neg' : 'zero';
+    const scoreStr = (isPos ? '+' : '') + score;
+    const barClass = isPos ? 'pos' : isNeg ? 'neg' : 'zero';
+    const measureText = def.measure(d);
+    const narrativeHTML = def.narrative(score, d);
+
+    html += `
+      <div class="signal-card ${cardClass}">
+        <div class="sc-head">
+          <div class="sc-left">
+            <div class="sc-code">${def.code}</div>
+            <div class="sc-name">
+              ${def.fullName}
+              ${def.isPrimary ? '<span class="primary-tag">Primary Driver</span>' : ''}
+            </div>
+          </div>
+          <div class="sc-right">
+            <div class="sc-score ${scoreClass}">${scoreStr}</div>
+            <div class="sc-max">/ ${def.range.max > 0 ? def.range.max : def.range.min}</div>
+          </div>
+        </div>
+        <div class="sc-bar-track">
+          <div class="sc-bar-fill ${barClass}" style="width:${barPct}%"></div>
+        </div>
+        <div><span class="sc-measure">${measureText}</span></div>
+        <div class="sc-narrative">${narrativeHTML}</div>
+      </div>
+    `;
+  });
+  document.getElementById('signalCards').innerHTML = html;
+}
+
+function renderChart(d) {
+  const candles = d.candles || [];
+  if (!candles.length) {
+    document.getElementById('detailChartContainer').innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--muted);font-family:var(--mono);font-size:12px">Chart data unavailable</div>';
+    return;
+  }
+
+  const chartEl = document.getElementById('detailChartContainer');
+  const volEl   = document.getElementById('detailVolContainer');
+
+  const chart = LightweightCharts.createChart(chartEl, {
+    width: chartEl.clientWidth, height: chartEl.clientHeight,
+    layout: { background: { color: '#0d0f14' }, textColor: '#6b7280' },
+    grid: { vertLines: { color: 'rgba(255,255,255,.04)' }, horzLines: { color: 'rgba(255,255,255,.04)' } },
+    crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
+    rightPriceScale: { borderColor: 'rgba(255,255,255,.08)' },
+    timeScale: { borderColor: 'rgba(255,255,255,.08)', timeVisible: true },
+  });
+
+  const volChart = LightweightCharts.createChart(volEl, {
+    width: volEl.clientWidth, height: volEl.clientHeight,
+    layout: { background: { color: '#0d0f14' }, textColor: '#6b7280' },
+    grid: { vertLines: { color: 'transparent' }, horzLines: { color: 'transparent' } },
+    rightPriceScale: { visible: false },
+    timeScale: { visible: false },
+  });
+
+  const candleSeries = chart.addCandlestickSeries({
+    upColor: '#10d97e', downColor: '#f43f5e',
+    borderUpColor: '#10d97e', borderDownColor: '#f43f5e',
+    wickUpColor: '#10d97e', wickDownColor: '#f43f5e',
+  });
+
+  const volSeries = volChart.addHistogramSeries({
+    color: 'rgba(107,114,128,.4)',
+    priceFormat: { type: 'volume' },
+  });
+
+  const formattedCandles = candles.map(c => ({ time: c.time, open: c.open, high: c.high, low: c.low, close: c.close }));
+  const formattedVol = candles.map(c => ({ time: c.time, value: c.volume || 0, color: (c.close >= c.open ? 'rgba(16,217,126,.35)' : 'rgba(244,63,94,.35)') }));
+
+  candleSeries.setData(formattedCandles);
+  volSeries.setData(formattedVol);
+
+  // EMA lines
+  const ema8data = computeEMA(candles, 8);
+  const ema21data = computeEMA(candles, 21);
+
+  if (ema8data.length) {
+    const ema8 = chart.addLineSeries({ color: '#38bdf8', lineWidth: 1, title: 'EMA 8W' });
+    ema8.setData(ema8data);
+  }
+  if (ema21data.length) {
+    const ema21 = chart.addLineSeries({ color: '#f59e0b', lineWidth: 1, title: 'EMA 21W' });
+    ema21.setData(ema21data);
+  }
+
+  // Plan levels
+  if (d.plan && d.plan.entry) {
+    const p = d.plan;
+    const addLine = (price, color, style, title) => {
+      const series = chart.addLineSeries({ color, lineWidth: 1, lineStyle: style || 0, title, lastValueVisible: true });
+      series.setData(candles.map(c => ({ time: c.time, value: price })));
+    };
+    addLine(p.entry,    'rgba(255,255,255,.7)', 0, `Entry ${p.entry}`);
+    addLine(p.stop_loss,'rgba(244,63,94,.8)',   2, `SL ${p.stop_loss}`);
+    addLine(p.target_1, 'rgba(16,217,126,.8)',  2, `T1 ${p.target_1}`);
+    addLine(p.target_2, 'rgba(16,217,126,.55)', 2, `T2 ${p.target_2}`);
+    addLine(p.target_3, 'rgba(16,217,126,.35)', 2, `T3 ${p.target_3}`);
+  }
+
+  document.getElementById('chartLegend').innerHTML = `
+    <div class="legend-item"><div class="legend-dot" style="background:#10d97e"></div>Candles</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#38bdf8"></div>EMA 8W</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#f59e0b"></div>EMA 21W</div>
+    ${d.plan && d.plan.entry ? `
+    <div class="legend-item"><div class="legend-dot" style="background:rgba(255,255,255,.7)"></div>Entry</div>
+    <div class="legend-item"><div class="legend-dot" style="background:rgba(244,63,94,.8)"></div>Stop Loss</div>
+    <div class="legend-item"><div class="legend-dot" style="background:rgba(16,217,126,.8)"></div>T1/T2/T3</div>
+    ` : ''}
+  `;
+
+  // Sync crosshair
+  chart.timeScale().subscribeVisibleLogicalRangeChange(r => {
+    if (r) volChart.timeScale().setVisibleLogicalRange(r);
+  });
+
+  // Resize
+  window.addEventListener('resize', () => {
+    chart.applyOptions({ width: chartEl.clientWidth });
+    volChart.applyOptions({ width: volEl.clientWidth });
+  });
+}
+
+function renderTechDashboard(d) {
+  const sigs = d.signals;
+  const rsi = sigs.rsi_value || 50;
+  const streak = sigs.streak || 0;
+  const streakDir = sigs.streak_dir || 'bull';
+  const atr = sigs.atr_value || 0;
+
+  // RSI gauge SVG
+  const rsiColor = rsi < 25 ? '#10d97e' : rsi < 35 ? '#22c55e' : rsi < 45 ? '#84cc16' : rsi < 55 ? '#6b7280' : rsi < 65 ? '#f59e0b' : rsi < 72 ? '#f97316' : '#f43f5e';
+  const rsiLabel = rsi < 25 ? 'Extremely Oversold' : rsi < 35 ? 'Heavily Oversold' : rsi < 45 ? 'Oversold Zone' : rsi < 55 ? 'Neutral' : rsi < 65 ? 'Approaching Overbought' : rsi < 72 ? 'Overbought' : 'Very Overbought';
+
+  // SVG half-gauge: 0-100 RSI maps to 0-180 degrees (left to right arc)
+  const angle = (rsi / 100) * 180 - 90; // -90=left, 90=right
+  const rad = angle * Math.PI / 180;
+  const cx = 70, cy = 60, r = 48;
+  const nx = cx + r * Math.sin(rad);
+  const ny = cy - r * Math.cos(rad);
+
+  // 52W bar
+  const hi = d.week52_high, lo = d.week52_low, cur = d.current_price;
+  const pos52 = (hi && lo && hi > lo) ? Math.min(100, Math.max(0, ((cur - lo)/(hi - lo)*100))) : 50;
+
+  const el = document.getElementById('techDashboard');
+  el.innerHTML = `
+    <!-- RSI Panel -->
+    <div class="td-panel">
+      <div class="td-title">RSI (14W)</div>
+      <div class="rsi-gauge-wrap">
+        <svg width="140" height="75" viewBox="0 0 140 75">
+          <!-- Background arc -->
+          <path d="M 14 64 A 56 56 0 0 1 126 64" fill="none" stroke="rgba(255,255,255,.08)" stroke-width="8" stroke-linecap="round"/>
+          <!-- Color zones -->
+          <path d="M 14 64 A 56 56 0 0 1 37 23" fill="none" stroke="#10d97e" stroke-width="8" stroke-linecap="round" opacity=".7"/>
+          <path d="M 37 23 A 56 56 0 0 1 70 8" fill="none" stroke="#84cc16" stroke-width="8" stroke-linecap="round" opacity=".5"/>
+          <path d="M 70 8 A 56 56 0 0 1 103 23" fill="none" stroke="#6b7280" stroke-width="8" stroke-linecap="round" opacity=".4"/>
+          <path d="M 103 23 A 56 56 0 0 1 126 64" fill="none" stroke="#f43f5e" stroke-width="8" stroke-linecap="round" opacity=".6"/>
+          <!-- Needle -->
+          <line x1="70" y1="60" x2="${nx.toFixed(1)}" y2="${ny.toFixed(1)}" stroke="white" stroke-width="2.5" stroke-linecap="round"/>
+          <circle cx="70" cy="60" r="4" fill="white"/>
+          <!-- Center value -->
+          <text x="70" y="82" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="14" font-weight="700" fill="${rsiColor}">${rsi.toFixed(1)}</text>
+        </svg>
+      </div>
+      <div class="td-label" style="color:${rsiColor}">${rsiLabel}</div>
+    </div>
+
+    <!-- 52W Panel -->
+    <div class="td-panel">
+      <div class="td-title">52-Week Range</div>
+      <div style="font-family:var(--mono);font-size:20px;font-weight:700;margin:8px 0">${pos52.toFixed(0)}<span style="font-size:12px">%</span></div>
+      <div class="range-track">
+        <div class="range-cursor" style="left:${pos52}%"></div>
+      </div>
+      <div class="range-labels">
+        <span>Low</span><span>High</span>
+      </div>
+      <div class="td-sub" style="margin-top:8px">${lo ? `NPR ${lo}` : '—'} → ${hi ? `NPR ${hi}` : '—'}</div>
+      <div class="td-label">${pos52 < 20 ? 'Deep value zone' : pos52 < 40 ? 'Value area' : pos52 < 65 ? 'Mid-range' : pos52 < 85 ? 'Upper range' : 'Near annual high'}</div>
+    </div>
+
+    <!-- Streak Panel -->
+    <div class="td-panel">
+      <div class="td-title">Streak</div>
+      <div class="td-value" style="color:${streakDir==='bull'?'var(--bull)':'var(--bear)'}">${streak}<span style="font-size:14px">${streakDir==='bull'?' ▲':' ▼'}</span></div>
+      <div class="td-sub">consecutive ${streakDir} weeks</div>
+      <div class="td-label">${streak <= 1 ? 'Fresh — no exhaustion risk' : streak === 2 ? 'Short streak — guard clear' : streak === 3 ? '⚠ Approaching exhaustion (guard at 3)' : '⚠ Streak guard triggered (≥4 weeks)'}</div>
+    </div>
+
+    <!-- ATR Panel -->
+    <div class="td-panel">
+      <div class="td-title">ATR (8W)</div>
+      <div class="td-value" style="color:var(--accent)">NPR<br><span style="font-size:22px">${atr.toFixed(1)}</span></div>
+      <div class="td-sub">Stop distance: NPR ${(atr * 0.5).toFixed(1)}</div>
+      <div class="td-label" style="color:${sigs.atr_flag?'var(--bear)':'var(--muted)'}">${sigs.atr_flag ? '⚠ Volatility spike detected' : 'Volatility: normal'}</div>
+    </div>
+  `;
+}
+
+function renderTradePlan(d) {
+  const p = d.plan;
+  const el = document.getElementById('tradePlanSection');
+  if (!p || !p.entry) {
+    el.innerHTML = '<div style="color:var(--muted);font-size:13px;text-align:center;padding:20px">No trade plan — stock is NEUTRAL or no plan data available.</div>';
+    return;
+  }
+  const ppct = (price) => price && p.entry ? pct(price, p.entry) : '—';
+  const atr = d.signals.atr_value || 0;
+
+  el.innerHTML = `
+    <div class="tp-grid">
+      <div class="tp-box tp-entry"><div class="tp-label">Entry</div><div class="tp-price">${p.entry}</div><div class="tp-pct" style="color:var(--muted)">Reference</div></div>
+      <div class="tp-box tp-sl"><div class="tp-label">Stop Loss</div><div class="tp-price">${p.stop_loss}</div><div class="tp-pct">${ppct(p.stop_loss)}</div></div>
+      <div class="tp-box tp-t1"><div class="tp-label">Target 1</div><div class="tp-price">${p.target_1}</div><div class="tp-pct">${ppct(p.target_1)}</div></div>
+      <div class="tp-box tp-t2"><div class="tp-label">Target 2</div><div class="tp-price">${p.target_2}</div><div class="tp-pct">${ppct(p.target_2)}</div></div>
+      <div class="tp-box tp-t3"><div class="tp-label">Target 3</div><div class="tp-price">${p.target_3}</div><div class="tp-pct">${ppct(p.target_3)}</div></div>
+      <div class="tp-box tp-rr"><div class="tp-label">Risk:Reward</div><div class="tp-price">1:${(p.risk_reward||0).toFixed(1)}</div><div class="tp-pct" style="color:var(--accent)">ratio</div></div>
+    </div>
+    <div class="tp-atr-note">
+      <strong>ATR-based sizing:</strong> ATR (8W) = NPR ${atr.toFixed(1)} &nbsp;·&nbsp;
+      Stop = 0.5× ATR = NPR ${(atr*0.5).toFixed(1)} below entry &nbsp;·&nbsp;
+      T1 = 0.8× ATR &nbsp;·&nbsp; T2 = 1.3× ATR &nbsp;·&nbsp; T3 = 1.8× ATR<br>
+      <strong>Expected T1 zone:</strong> NPR ${p.band_low||'—'} – NPR ${p.band_high||'—'} (T1 ± 0.3× ATR)
+    </div>
+  `;
+}
+
+function renderFundamentals(d) {
+  const pe = d.pe_ratio ? d.pe_ratio.toFixed(1) + '×' : (d.eps && d.eps < 0 ? 'N/A (loss-making)' : '—');
+  const chgColor = (d.pct_change||0) >= 0 ? 'var(--bull)' : 'var(--bear)';
+  document.getElementById('fundamentalsGrid').innerHTML = `
+    <div class="fund-item"><div class="fund-label">Current Price</div><div class="fund-value">NPR ${fmt(d.current_price)}</div></div>
+    <div class="fund-item"><div class="fund-label">Week Change</div><div class="fund-value" style="color:${chgColor}">${(d.pct_change||0)>=0?'+':''}${(d.pct_change||0).toFixed(2)}%</div></div>
+    <div class="fund-item"><div class="fund-label">EPS</div><div class="fund-value">NPR ${fmt(d.eps)}</div></div>
+    <div class="fund-item"><div class="fund-label">P/E Ratio</div><div class="fund-value">${pe}</div></div>
+    <div class="fund-item"><div class="fund-label">52W High</div><div class="fund-value" style="color:var(--bear)">NPR ${fmt(d.week52_high)}</div></div>
+    <div class="fund-item"><div class="fund-label">52W Low</div><div class="fund-value" style="color:var(--bull)">NPR ${fmt(d.week52_low)}</div></div>
+    <div class="fund-item"><div class="fund-label">Sector</div><div class="fund-value" style="color:var(--accent);font-size:12px">${d.sector||'—'}</div></div>
+    <div class="fund-item"><div class="fund-label">Grade</div><div class="fund-value">${d.grade||'—'}</div></div>
+  `;
+}
+
+function renderMarketContext(d) {
+  const sigs = d.signals;
+  const s11 = sigs.s11_market || 0;
+  const s5  = sigs.s5_sector  || 0;
+  const s10 = sigs.s10_monthly || 0;
+
+  const s11Text = s11 === 0 ? `NEPSE market breadth was <span style="color:var(--bull)">flat or positive</span> last week. No suppression applied to this prediction.`
+    : s11 === -12 ? `NEPSE market was <span style="color:var(--bear)">moderately negative (-1% to -2%)</span> last week. This reduced the score by 12 pts, but the stock's individual signals still cleared the 115 threshold.`
+    : `NEPSE market was <span style="color:var(--bear)">clearly down (≤-2%)</span> last week. Maximum suppression of -22 pts applied — this stock's strong individual signals (especially RSI) overcame the market headwind.`;
+
+  const s5Text = s5 >= 20 ? `The <strong>${d.sector}</strong> sector index was <span style="color:var(--bull)">UP</span> this week — a sector tailwind (+20 pts).`
+    : s5 <= -10 ? `The <strong>${d.sector}</strong> sector index was <span style="color:var(--bear)">DOWN</span> this week — headwind active (-10 pts). Strong individual signals compensated.`
+    : `<strong>${d.sector}</strong> sector direction data not available — neutral score applied (+10 pts).`;
+
+  const s10Map = { 10: 'Week 1 (days 1–7) — peak liquidity month-start', 5: 'Week 2 (days 8–14) — decent liquidity', 0: 'Week 3 (days 15–21) — neutral', '-5': 'Week 4 (days 22+) — month-end pressure (-5 pts)' };
+  const s10Text = s10Map[String(s10)] || 'Calendar: neutral';
+
+  document.getElementById('marketContextBody').innerHTML = `
+    <div class="ctx-item"><div class="ctx-label">S11 · NEPSE Market</div><div class="ctx-value">${s11Text}</div></div>
+    <div class="ctx-item"><div class="ctx-label">S5 · Sector Direction</div><div class="ctx-value">${s5Text}</div></div>
+    <div class="ctx-item"><div class="ctx-label">S10 · Calendar Cycle</div><div class="ctx-value">${s10Text} (${s10 >= 0 ? '+' : ''}${s10} pts)</div></div>
+  `;
+}
+
+/* ══════════════════════════════
+   MAIN ENTRY POINT
+   ══════════════════════════════ */
+async function init() {
+  const params = new URLSearchParams(window.location.search);
+  const symbol = params.get('symbol');
+  if (!symbol) {
+    document.getElementById('detailLoading').classList.add('hidden');
+    document.getElementById('mainContent').style.display = '';
+    document.getElementById('detailHeader').innerHTML = `
+      <div class="error-card">
+        <h2>No Symbol Specified</h2>
+        <p>Please provide a stock symbol: <code>/detail?symbol=NABIL</code></p>
+        <a href="/" class="back-link">← Back to Dashboard</a>
+      </div>`;
+    return;
+  }
+
+  try {
+    const res = await fetch(`${getAPIBase()}/stock/${encodeURIComponent(symbol)}`, { cache: 'no-store' });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const d = await res.json();
+
+    document.getElementById('detailLoading').classList.add('hidden');
+    document.getElementById('mainContent').style.display = '';
+
+    renderHeader(d);
+    renderInvestigation(d);
+    renderSignals(d);
+    renderChart(d);
+    renderTechDashboard(d);
+    renderTradePlan(d);
+    renderFundamentals(d);
+    renderMarketContext(d);
+
+  } catch(err) {
+    document.getElementById('detailLoading').classList.add('hidden');
+    document.getElementById('mainContent').style.display = '';
+    document.getElementById('detailHeader').innerHTML = `
+      <div class="error-card">
+        <h2>Failed to load ${symbol}</h2>
+        <p>Could not fetch stock data: ${err.message}</p>
+        <a href="/" class="back-link">← Back to Dashboard</a>
+      </div>`;
+  }
+}
+
+init();
+</script>
+</body>
+</html>

@@ -1433,9 +1433,9 @@ function renderTop4(stocks) {
       </div>
 
       <div class="pick-reason">${s.reason || "—"}</div>
-      <button class="detail-btn" onclick="openDetail('${s.symbol}')">
-        📊 Full Analysis — Chart &amp; Signals
-      </button>
+      <a class="detail-btn" href="/detail?symbol=${s.symbol}" style="text-decoration:none;display:block">
+        📊 Deep Analysis — Full Investigation
+      </a>
     </div>`;
   }).join("");
 }

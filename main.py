@@ -229,6 +229,11 @@ def serve_backtest_page():
     """Serve the backtest UI"""
     return FileResponse(BASE_DIR / "backtest.html")
 
+@app.get("/detail", response_class=FileResponse)
+def serve_detail():
+    """Serve the stock detail analysis UI"""
+    return FileResponse(BASE_DIR / "detail.html")
+
 # ─── API ENDPOINTS ───────────────────────────────────────────────
 
 @app.get("/report")
