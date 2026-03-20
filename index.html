@@ -6,6 +6,7 @@
 <title>NEPSE V5 — Weekly Signal Report</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
 <style>
 :root {
   --bg:       #0a0c10;
@@ -549,6 +550,212 @@ tbody td {
   color: var(--muted);
 }
 .empty-state h3 { font-family: var(--display); font-size: 18px; margin-bottom: 8px; color: var(--text); }
+
+/* ─── DETAIL BUTTON ──────────────────────────────── */
+.detail-btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  margin-top: 12px; padding: 7px 14px; border-radius: 8px;
+  background: rgba(240,192,64,.1); border: 1px solid rgba(240,192,64,.25);
+  color: var(--accent); font-family: var(--mono); font-size: 11px;
+  cursor: pointer; transition: background .2s;
+  width: 100%;
+  justify-content: center;
+}
+.detail-btn:hover { background: rgba(240,192,64,.2); }
+
+tbody tr { cursor: pointer; }
+
+/* ─── MODAL OVERLAY ──────────────────────────────── */
+.modal-overlay {
+  position: fixed; inset: 0; z-index: 1000;
+  background: rgba(0,0,0,.75); backdrop-filter: blur(6px);
+  display: flex; align-items: flex-start; justify-content: center;
+  padding: 24px 16px; overflow-y: auto;
+  opacity: 0; pointer-events: none;
+  transition: opacity .2s;
+}
+.modal-overlay.open { opacity: 1; pointer-events: all; }
+
+.modal {
+  background: #13161e; border: 1px solid rgba(255,255,255,.12);
+  border-radius: 18px; width: 100%; max-width: 900px;
+  overflow: hidden; position: relative;
+  transform: translateY(20px);
+  transition: transform .25s cubic-bezier(.4,0,.2,1);
+}
+.modal-overlay.open .modal { transform: none; }
+
+/* Modal header */
+.modal-header {
+  display: flex; align-items: flex-start;
+  justify-content: space-between; gap: 16px;
+  padding: 22px 24px 16px;
+  border-bottom: 1px solid rgba(255,255,255,.07);
+}
+.mh-left { display: flex; align-items: center; gap: 14px; }
+.mh-grade {
+  width: 48px; height: 48px; border-radius: 12px;
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--display); font-weight: 800; font-size: 18px;
+}
+.mh-grade.Ap { background: rgba(16,217,126,.2); color: var(--bull); }
+.mh-grade.A  { background: rgba(16,217,126,.12); color: var(--bull); }
+.mh-grade.B  { background: rgba(79,142,247,.12); color: var(--blue); }
+.mh-grade.C  { background: rgba(245,158,11,.12); color: var(--neutral); }
+.mh-grade.D  { background: rgba(248,76,76,.1); color: var(--bear); }
+.mh-grade.N  { background: rgba(255,255,255,.05); color: var(--muted); }
+.mh-info h2 { font-family: var(--display); font-size: 24px; font-weight: 800; letter-spacing: -.5px; }
+.mh-info p  { font-size: 12px; color: var(--muted); margin-top: 2px; }
+.mh-badges  { display: flex; align-items: center; gap: 8px; margin-top: 6px; flex-wrap: wrap; }
+.mh-sector  {
+  font-size: 11px; font-family: var(--mono);
+  background: var(--bg3); padding: 2px 10px; border-radius: 20px; color: var(--muted);
+}
+.modal-close {
+  width: 32px; height: 32px; border-radius: 8px;
+  background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.1);
+  color: var(--muted); font-size: 18px; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: background .2s; flex-shrink: 0;
+}
+.modal-close:hover { background: rgba(255,255,255,.12); color: var(--text); }
+
+/* Modal tabs */
+.modal-tabs {
+  display: flex; gap: 0; border-bottom: 1px solid rgba(255,255,255,.07);
+  padding: 0 24px;
+}
+.modal-tab {
+  padding: 10px 18px; font-family: var(--mono); font-size: 12px;
+  color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent;
+  transition: color .2s, border-color .2s; margin-bottom: -1px;
+}
+.modal-tab:hover { color: var(--text); }
+.modal-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+/* Modal body */
+.modal-body { padding: 20px 24px; }
+.modal-panel { display: none; }
+.modal-panel.active { display: block; }
+
+/* ─── OVERVIEW TAB ──────────────────── */
+.overview-grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 16px;
+}
+@media(max-width:600px){ .overview-grid { grid-template-columns: 1fr; } }
+
+.detail-section {
+  background: var(--bg2); border: 1px solid var(--border);
+  border-radius: 12px; padding: 16px;
+}
+.detail-section-title {
+  font-family: var(--mono); font-size: 10px; font-weight: 500;
+  letter-spacing: .08em; text-transform: uppercase;
+  color: var(--muted); margin-bottom: 12px;
+}
+
+/* Key metrics grid */
+.metrics-grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
+}
+.metric-item { display: flex; flex-direction: column; gap: 3px; }
+.metric-label { font-size: 10px; color: var(--muted); font-family: var(--mono); }
+.metric-value { font-family: var(--mono); font-size: 14px; font-weight: 500; }
+
+/* 52W range bar */
+.range-bar-wrap { margin-top: 10px; }
+.range-bar-track {
+  height: 6px; background: rgba(255,255,255,.08); border-radius: 3px;
+  position: relative; margin: 6px 0;
+}
+.range-bar-fill {
+  position: absolute; top: 0; height: 6px; border-radius: 3px;
+  background: linear-gradient(90deg, var(--bear), var(--neutral), var(--bull));
+}
+.range-bar-cursor {
+  position: absolute; top: -4px; width: 3px; height: 14px;
+  background: white; border-radius: 2px; transform: translateX(-50%);
+}
+.range-labels {
+  display: flex; justify-content: space-between;
+  font-family: var(--mono); font-size: 10px; color: var(--muted);
+}
+
+/* Reason box */
+.reason-box {
+  background: var(--bg2); border: 1px solid var(--border);
+  border-radius: 12px; padding: 16px; margin-top: 14px;
+}
+.reason-text {
+  font-size: 13px; color: var(--text); line-height: 1.7;
+}
+.reason-dot {
+  display: inline-block; margin: 0 6px;
+  color: var(--muted);
+}
+
+/* ─── CHART TAB ───────────────────── */
+#chartContainer {
+  width: 100%; height: 340px;
+  border-radius: 10px; overflow: hidden;
+  background: #0d0f14;
+}
+#volContainer {
+  width: 100%; height: 80px;
+  border-radius: 10px; overflow: hidden;
+  background: #0d0f14; margin-top: 8px;
+}
+
+/* Price plan in chart tab */
+.plan-levels {
+  display: flex; gap: 10px; flex-wrap: wrap; margin-top: 14px;
+}
+.plan-level {
+  display: flex; flex-direction: column; align-items: center; gap: 3px;
+  background: var(--bg2); border: 1px solid var(--border);
+  border-radius: 10px; padding: 10px 14px; flex: 1; min-width: 90px;
+}
+.plan-level .pl-label { font-size: 10px; color: var(--muted); font-family: var(--mono); }
+.plan-level .pl-value { font-family: var(--mono); font-size: 15px; font-weight: 600; }
+.plan-level .pl-pct   { font-family: var(--mono); font-size: 10px; color: var(--muted); }
+.plan-level.entry .pl-value  { color: var(--text); }
+.plan-level.stop  .pl-value  { color: var(--bear); }
+.plan-level.t1    .pl-value  { color: #6ee7b7; }
+.plan-level.t2    .pl-value  { color: #a7f3d0; }
+.plan-level.t3    .pl-value  { color: #d1fae5; }
+.plan-level.rr    .pl-value  { color: var(--accent); }
+
+/* ─── SIGNALS TAB ─────────────────── */
+.signals-list { display: flex; flex-direction: column; gap: 10px; }
+.sig-row {
+  display: grid; grid-template-columns: 90px 1fr 50px;
+  align-items: center; gap: 10px;
+}
+.sig-name { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+.sig-bar-track {
+  height: 8px; background: rgba(255,255,255,.06); border-radius: 4px;
+  position: relative; overflow: visible;
+}
+.sig-bar-fill {
+  height: 8px; border-radius: 4px;
+  transition: width .6s cubic-bezier(.4,0,.2,1);
+}
+.sig-bar-fill.pos { background: var(--bull); }
+.sig-bar-fill.neg { background: var(--bear); float: right; }
+.sig-score {
+  font-family: var(--mono); font-size: 12px; font-weight: 500;
+  text-align: right;
+}
+.sig-score.pos { color: var(--bull); }
+.sig-score.neg { color: var(--bear); }
+.sig-score.zero { color: var(--muted); }
+.sig-total-row {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 12px 0 0; border-top: 1px solid var(--border); margin-top: 6px;
+}
+.sig-total-label { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+.sig-total-val { font-family: var(--display); font-size: 22px; font-weight: 700; color: var(--accent); }
+.sig-threshold-note { font-family: var(--mono); font-size: 11px; color: var(--muted); }
 </style>
 </head>
 <body>
@@ -708,6 +915,136 @@ tbody td {
 
 </div><!-- end container -->
 
+<!-- ─── STOCK DETAIL MODAL ─────────────────────────────── -->
+<div class="modal-overlay" id="detailOverlay" onclick="closeDetailOnBackdrop(event)">
+  <div class="modal" id="detailModal">
+
+    <div class="modal-header">
+      <div class="mh-left">
+        <div class="mh-grade" id="mGrade">—</div>
+        <div class="mh-info">
+          <h2 id="mSymbol">—</h2>
+          <p id="mName">—</p>
+          <div class="mh-badges">
+            <span class="mh-sector" id="mSector">—</span>
+            <span class="direction-badge" id="mSignalBadge">—</span>
+            <span style="font-family:var(--mono);font-size:11px;color:var(--muted)" id="mScore">—</span>
+          </div>
+        </div>
+      </div>
+      <button class="modal-close" onclick="closeDetail()">✕</button>
+    </div>
+
+    <div class="modal-tabs">
+      <div class="modal-tab active" onclick="switchTab('overview')">Overview</div>
+      <div class="modal-tab" onclick="switchTab('chart')">Chart</div>
+      <div class="modal-tab" onclick="switchTab('signals')">Signals</div>
+    </div>
+
+    <div class="modal-body">
+
+      <!-- OVERVIEW TAB -->
+      <div class="modal-panel active" id="tab-overview">
+        <div class="overview-grid">
+          <!-- Key Metrics -->
+          <div class="detail-section">
+            <div class="detail-section-title">Key Metrics</div>
+            <div class="metrics-grid">
+              <div class="metric-item">
+                <span class="metric-label">Current Price</span>
+                <span class="metric-value" id="mPrice">—</span>
+              </div>
+              <div class="metric-item">
+                <span class="metric-label">Last Week Chg</span>
+                <span class="metric-value" id="mPctChg">—</span>
+              </div>
+              <div class="metric-item">
+                <span class="metric-label">EPS (NPR)</span>
+                <span class="metric-value" id="mEPS">—</span>
+              </div>
+              <div class="metric-item">
+                <span class="metric-label">P/E Ratio</span>
+                <span class="metric-value" id="mPE">—</span>
+              </div>
+              <div class="metric-item">
+                <span class="metric-label">RSI (14)</span>
+                <span class="metric-value" id="mRSI">—</span>
+              </div>
+              <div class="metric-item">
+                <span class="metric-label">ATR</span>
+                <span class="metric-value" id="mATR">—</span>
+              </div>
+            </div>
+            <!-- 52W Range -->
+            <div class="range-bar-wrap" style="margin-top:14px">
+              <div class="detail-section-title" style="margin-bottom:6px">52-Week Range</div>
+              <div class="range-bar-track">
+                <div class="range-bar-fill" id="mRangeFill"></div>
+                <div class="range-bar-cursor" id="mRangeCursor"></div>
+              </div>
+              <div class="range-labels">
+                <span id="mLow52">—</span>
+                <span id="mCurLabel" style="color:var(--text)">Current</span>
+                <span id="mHigh52">—</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Price Plan -->
+          <div class="detail-section">
+            <div class="detail-section-title">Trade Plan</div>
+            <div style="display:flex;flex-direction:column;gap:8px">
+              <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 10px;border-radius:8px;background:var(--bg3)">
+                <span style="font-size:11px;color:var(--muted);font-family:var(--mono)">Entry</span>
+                <span style="font-family:var(--mono);font-size:14px;font-weight:500" id="mEntry">—</span>
+              </div>
+              <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 10px;border-radius:8px;background:rgba(248,76,76,.08);border:1px solid rgba(248,76,76,.15)">
+                <span style="font-size:11px;color:var(--bear);font-family:var(--mono)">Stop Loss</span>
+                <span style="font-family:var(--mono);font-size:14px;font-weight:500;color:var(--bear)" id="mStop">—</span>
+              </div>
+              <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 10px;border-radius:8px;background:rgba(16,217,126,.06);border:1px solid rgba(16,217,126,.12)">
+                <span style="font-size:11px;color:var(--bull);font-family:var(--mono)">Target 1</span>
+                <span style="font-family:var(--mono);font-size:14px;font-weight:500;color:var(--bull)" id="mT1">—</span>
+              </div>
+              <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 10px;border-radius:8px;background:rgba(16,217,126,.04)">
+                <span style="font-size:11px;color:#6ee7b7;font-family:var(--mono)">Target 2</span>
+                <span style="font-family:var(--mono);font-size:13px;font-weight:500;color:#6ee7b7" id="mT2">—</span>
+              </div>
+              <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 10px;border-radius:8px;background:rgba(16,217,126,.02)">
+                <span style="font-size:11px;color:#a7f3d0;font-family:var(--mono)">Target 3</span>
+                <span style="font-family:var(--mono);font-size:13px;font-weight:500;color:#a7f3d0" id="mT3">—</span>
+              </div>
+              <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 10px;border-radius:8px;background:rgba(240,192,64,.06)">
+                <span style="font-size:11px;color:var(--accent);font-family:var(--mono)">Risk : Reward</span>
+                <span style="font-family:var(--mono);font-size:14px;font-weight:500;color:var(--accent)" id="mRR">—</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Reasoning -->
+        <div class="reason-box">
+          <div class="detail-section-title">Engine Reasoning</div>
+          <div class="reason-text" id="mReason">—</div>
+        </div>
+      </div><!-- /tab-overview -->
+
+      <!-- CHART TAB -->
+      <div class="modal-panel" id="tab-chart">
+        <div id="chartContainer"></div>
+        <div id="volContainer"></div>
+        <div class="plan-levels" id="chartPlanLevels"></div>
+      </div>
+
+      <!-- SIGNALS TAB -->
+      <div class="modal-panel" id="tab-signals">
+        <div class="signals-list" id="signalsList"></div>
+      </div>
+
+    </div><!-- /modal-body -->
+  </div><!-- /modal -->
+</div><!-- /modal-overlay -->
+
 <script>
 const API_BASE = window.location.origin === "null" || window.location.protocol === "file:"
   ? "http://localhost:8008"
@@ -860,6 +1197,9 @@ function renderTop4(stocks) {
       </div>
 
       <div class="pick-reason">${s.reason || "—"}</div>
+      <button class="detail-btn" onclick="openDetail('${s.symbol}')">
+        📊 Full Analysis — Chart &amp; Signals
+      </button>
     </div>`;
   }).join("");
 }
@@ -878,7 +1218,7 @@ function renderTable(stocks) {
     const scoreColor = s.score >= 90 ? "var(--bull)" : s.score >= 75 ? "var(--neutral)" : "var(--bear)";
 
     return `
-    <tr class="${s.top_pick ? "top-pick" : ""}">
+    <tr class="${s.top_pick ? "top-pick" : ""}" onclick="openDetail('${s.symbol}')" title="Click for full analysis">
       <td style="color:var(--muted);font-family:var(--mono)">${i+1}</td>
       <td>
         <div class="t-symbol">${s.symbol}${s.top_pick ? ' <span style="color:var(--bull);font-size:10px">★</span>' : ""}</div>
@@ -954,6 +1294,286 @@ function getMockData() {
     ]
   };
 }
+
+// ─── DETAIL MODAL ────────────────────────────────────────────────
+let _lwChart = null;
+let _activeTab = 'overview';
+let _currentDetail = null;
+
+async function openDetail(symbol) {
+  const overlay = document.getElementById('detailOverlay');
+  overlay.classList.add('open');
+  document.body.style.overflow = 'hidden';
+  switchTab('overview');
+
+  // Fill loading state while fetching
+  document.getElementById('mSymbol').textContent = symbol;
+  document.getElementById('mName').textContent = 'Loading…';
+  document.getElementById('mGrade').textContent = '…';
+
+  try {
+    const res = await fetch(`${API_BASE}/stock/${symbol}`);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const d = await res.json();
+    _currentDetail = d;
+    fillModal(d);
+  } catch(e) {
+    document.getElementById('mName').textContent = 'Error: ' + e.message;
+  }
+}
+
+function closeDetail() {
+  document.getElementById('detailOverlay').classList.remove('open');
+  document.body.style.overflow = '';
+  if (_lwChart) { _lwChart.remove(); _lwChart = null; }
+}
+
+function closeDetailOnBackdrop(e) {
+  if (e.target === document.getElementById('detailOverlay')) closeDetail();
+}
+
+function switchTab(name) {
+  _activeTab = name;
+  document.querySelectorAll('.modal-tab').forEach((t, i) => {
+    const tabs = ['overview','chart','signals'];
+    t.classList.toggle('active', tabs[i] === name);
+  });
+  document.querySelectorAll('.modal-panel').forEach(p => p.classList.remove('active'));
+  document.getElementById('tab-' + name).classList.add('active');
+
+  if (name === 'chart' && _currentDetail) {
+    // slight delay so container is visible before rendering
+    setTimeout(() => renderChart(_currentDetail), 50);
+  }
+}
+
+function fillModal(d) {
+  const sigs = d.signals || {};
+  const plan = d.plan || {};
+  const bull = d.prediction === 'BULL';
+  const grClass = d.grade === 'A+' ? 'Ap' : (d.grade || 'N');
+
+  // Header
+  const grEl = document.getElementById('mGrade');
+  grEl.textContent = d.grade || '—';
+  grEl.className = 'mh-grade ' + grClass;
+  document.getElementById('mSymbol').textContent = d.symbol;
+  document.getElementById('mName').textContent = d.name;
+  document.getElementById('mSector').textContent = d.sector;
+  document.getElementById('mScore').textContent = `Score: ${d.score} / 185`;
+  const badge = document.getElementById('mSignalBadge');
+  badge.textContent = bull ? '▲ BULL' : d.prediction === 'BEAR' ? '▼ BEAR' : '→ NEUTRAL';
+  badge.className = 'direction-badge ' + (bull ? 'bull' : d.prediction === 'BEAR' ? 'bear' : '');
+  badge.style.cssText = d.prediction === 'NEUTRAL'
+    ? 'background:rgba(245,158,11,.1);color:var(--neutral);border:1px solid rgba(245,158,11,.25);padding:5px 12px;border-radius:6px;font-family:var(--mono);font-size:12px'
+    : '';
+
+  // Key metrics
+  document.getElementById('mPrice').textContent = 'NPR ' + fmt(d.current_price);
+  const chg = d.pct_change;
+  const chgEl = document.getElementById('mPctChg');
+  chgEl.textContent = (chg >= 0 ? '+' : '') + (chg||0).toFixed(2) + '%';
+  chgEl.style.color = chg >= 0.5 ? 'var(--bull)' : chg <= -0.5 ? 'var(--bear)' : 'var(--muted)';
+  document.getElementById('mEPS').textContent = d.eps ? 'NPR ' + d.eps : '—';
+  document.getElementById('mPE').textContent = d.pe_ratio ? d.pe_ratio + 'x' : (d.eps && d.eps > 0 ? (d.current_price/d.eps).toFixed(1) + 'x' : '—');
+
+  const rsi = sigs.rsi_value;
+  const rsiEl = document.getElementById('mRSI');
+  rsiEl.textContent = rsi != null ? rsi.toFixed(1) : '—';
+  rsiEl.style.color = rsi < 30 ? 'var(--bull)' : rsi > 70 ? 'var(--bear)' : 'var(--text)';
+
+  document.getElementById('mATR').textContent = sigs.atr_value ? 'NPR ' + sigs.atr_value : '—';
+
+  // 52W range
+  const hi = d.week52_high, lo = d.week52_low, cur = d.current_price;
+  document.getElementById('mHigh52').textContent = fmt(hi);
+  document.getElementById('mLow52').textContent = fmt(lo);
+  if (hi && lo && cur) {
+    const pct = Math.max(0, Math.min(100, (cur - lo) / (hi - lo) * 100));
+    document.getElementById('mRangeFill').style.width = pct + '%';
+    document.getElementById('mRangeCursor').style.left = pct + '%';
+    document.getElementById('mCurLabel').textContent = `Current: ${fmt(cur)}`;
+  }
+
+  // Trade plan
+  document.getElementById('mEntry').textContent = plan.entry ? 'NPR ' + fmt(plan.entry) : '—';
+  document.getElementById('mStop').textContent  = plan.stop_loss ? 'NPR ' + fmt(plan.stop_loss) : '—';
+  document.getElementById('mT1').textContent    = plan.target_1 ? 'NPR ' + fmt(plan.target_1) : '—';
+  document.getElementById('mT2').textContent    = plan.target_2 ? 'NPR ' + fmt(plan.target_2) : '—';
+  document.getElementById('mT3').textContent    = plan.target_3 ? 'NPR ' + fmt(plan.target_3) : '—';
+  document.getElementById('mRR').textContent    = plan.risk_reward ? '1 : ' + plan.risk_reward : '—';
+
+  // Reasoning — split by · and add styled dots
+  const rawReason = d.reason || '—';
+  document.getElementById('mReason').innerHTML = rawReason
+    .split('·')
+    .map(part => part.trim())
+    .filter(Boolean)
+    .map((part, i) => i === 0 ? part : `<span class="reason-dot">·</span>${part}`)
+    .join('');
+
+  // Signals list
+  renderSignals(d);
+
+  // Chart plan levels
+  renderPlanLevels(plan, d.current_price);
+}
+
+function renderSignals(d) {
+  const sigs = d.signals || {};
+  const SIGNAL_DEF = [
+    { key: 's1_momentum',    label: 'S1 Momentum',    max: 30,  desc: 'Weekly price direction (last 2 weeks)' },
+    { key: 's2_streak',      label: 'S2 Streak',      max: 25,  desc: 'Consecutive bull/bear streak (up to 4 weeks)' },
+    { key: 's3_volume',      label: 'S3 Volume',      max: 25,  desc: 'Volume surge vs 4-week average' },
+    { key: 's4_position',    label: 'S4 Weekly Pos',  max: 20,  desc: 'Price position within the week\'s range' },
+    { key: 's5_sector',      label: 'S5 Sector',      max: 20,  desc: 'Sector sub-index direction this week' },
+    { key: 's6_rsi',         label: 'S6 RSI',         max: 25,  desc: 'RSI oversold/overbought (mean-reversion)' },
+    { key: 's7_ema',         label: 'S7 EMA Cross',   max: 15,  desc: 'EMA 3W vs EMA 6W golden/death cross' },
+    { key: 's8_rel_strength',label: 'S8 Rel Strength',max: 15,  desc: 'Performance vs sector peers' },
+    { key: 's9_week52',      label: 'S9 52W Position',max: 15,  desc: 'Price position in 52-week range' },
+    { key: 's10_monthly',    label: 'S10 Calendar',   max: 10,  desc: 'Month-of-year seasonal effect' },
+    { key: 's11_market',     label: 'S11 Market',     max: 15,  desc: 'NEPSE market breadth gate' },
+  ];
+
+  const total = sigs.total || 0;
+  const bull  = d.prediction === 'BULL';
+  const thresh = sigs.bull_threshold || 115;
+
+  let html = '';
+  SIGNAL_DEF.forEach(s => {
+    const v = sigs[s.key] || 0;
+    const pct = Math.abs(v) / s.max * 100;
+    const isNeg = v < 0;
+    const scoreClass = v > 0 ? 'pos' : v < 0 ? 'neg' : 'zero';
+    const fillClass  = isNeg ? 'neg' : 'pos';
+    const display    = v > 0 ? '+' + v : String(v);
+
+    html += `
+      <div class="sig-row" title="${s.desc}">
+        <span class="sig-name">${s.label}</span>
+        <div class="sig-bar-track">
+          <div class="sig-bar-fill ${fillClass}" style="width:0%" data-pct="${Math.min(pct,100)}"></div>
+        </div>
+        <span class="sig-score ${scoreClass}">${display}</span>
+      </div>`;
+  });
+
+  html += `
+    <div class="sig-total-row">
+      <div>
+        <div class="sig-total-label">Total Score</div>
+        <div class="sig-threshold-note">Threshold: ${thresh} → ${total >= thresh ? '<span style="color:var(--bull)">BULL ✓</span>' : '<span style="color:var(--muted)">NEUTRAL</span>'}</div>
+      </div>
+      <div style="text-align:right">
+        <div class="sig-total-val">${total}</div>
+        <div class="sig-threshold-note">/ 185 max</div>
+      </div>
+    </div>`;
+
+  document.getElementById('signalsList').innerHTML = html;
+
+  // Animate bars after a tick
+  setTimeout(() => {
+    document.querySelectorAll('.sig-bar-fill[data-pct]').forEach(el => {
+      el.style.width = el.dataset.pct + '%';
+    });
+  }, 80);
+}
+
+function renderPlanLevels(plan, cur) {
+  const entry = plan.entry, stop = plan.stop_loss, t1 = plan.target_1, t2 = plan.target_2, t3 = plan.target_3;
+  const pct = (p) => entry ? ((p - entry) / entry * 100).toFixed(1) + '%' : '';
+  const container = document.getElementById('chartPlanLevels');
+  if (!entry) { container.innerHTML = ''; return; }
+  container.innerHTML = `
+    <div class="plan-level entry"><span class="pl-label">Entry</span><span class="pl-value">NPR ${fmt(entry)}</span><span class="pl-pct">—</span></div>
+    <div class="plan-level stop"><span class="pl-label">Stop</span><span class="pl-value">NPR ${fmt(stop)}</span><span class="pl-pct">${pct(stop)}</span></div>
+    <div class="plan-level t1"><span class="pl-label">Target 1</span><span class="pl-value">NPR ${fmt(t1)}</span><span class="pl-pct">${pct(t1)}</span></div>
+    <div class="plan-level t2"><span class="pl-label">Target 2</span><span class="pl-value">NPR ${fmt(t2)}</span><span class="pl-pct">${pct(t2)}</span></div>
+    <div class="plan-level t3"><span class="pl-label">Target 3</span><span class="pl-value">NPR ${fmt(t3)}</span><span class="pl-pct">${pct(t3)}</span></div>
+    <div class="plan-level rr"><span class="pl-label">R:R</span><span class="pl-value">1:${plan.risk_reward||'—'}</span><span class="pl-pct"> </span></div>`;
+}
+
+function renderChart(d) {
+  const container = document.getElementById('chartContainer');
+  const volCont   = document.getElementById('volContainer');
+  if (!container) return;
+
+  // Destroy previous chart
+  if (_lwChart) { _lwChart.remove(); _lwChart = null; }
+  container.innerHTML = '';
+  volCont.innerHTML   = '';
+
+  const candles = d.candles || [];
+  if (!candles.length) {
+    container.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--muted);font-family:var(--mono);font-size:12px">No chart data available</div>';
+    return;
+  }
+
+  const validCandles = candles.filter(c => c.open && c.high && c.low && c.close);
+
+  // Main chart
+  _lwChart = LightweightCharts.createChart(container, {
+    layout: { background: { color: '#0d0f14' }, textColor: '#6b7280' },
+    grid:   { vertLines: { color: 'rgba(255,255,255,0.04)' }, horzLines: { color: 'rgba(255,255,255,0.04)' } },
+    crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
+    rightPriceScale: { borderColor: 'rgba(255,255,255,0.1)' },
+    timeScale: { borderColor: 'rgba(255,255,255,0.1)', timeVisible: true },
+    width: container.clientWidth,
+    height: 340,
+  });
+
+  const candleSeries = _lwChart.addCandlestickSeries({
+    upColor:   '#10d97e', downColor: '#f84c4c',
+    borderUpColor: '#10d97e', borderDownColor: '#f84c4c',
+    wickUpColor:   '#10d97e', wickDownColor:   '#f84c4c',
+  });
+  candleSeries.setData(validCandles);
+
+  // Add price lines for plan
+  const plan = d.plan || {};
+  if (plan.entry) {
+    const addLine = (price, color, title) => {
+      if (!price) return;
+      candleSeries.createPriceLine({ price, color, lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dashed, title });
+    };
+    addLine(plan.entry,    '#e8eaf0', 'Entry');
+    addLine(plan.stop_loss,'#f84c4c', 'Stop');
+    addLine(plan.target_1, '#10d97e', 'T1');
+    addLine(plan.target_2, '#6ee7b7', 'T2');
+    addLine(plan.target_3, '#a7f3d0', 'T3');
+  }
+
+  // Volume chart
+  const volChart = LightweightCharts.createChart(volCont, {
+    layout: { background: { color: '#0d0f14' }, textColor: '#6b7280' },
+    grid:   { vertLines: { color: 'rgba(255,255,255,0.04)' }, horzLines: { color: 'rgba(255,255,255,0.04)' } },
+    rightPriceScale: { borderColor: 'rgba(255,255,255,0.1)' },
+    timeScale: { borderColor: 'rgba(255,255,255,0.1)', timeVisible: true },
+    width: volCont.clientWidth,
+    height: 80,
+  });
+  const volSeries = volChart.addHistogramSeries({
+    color: 'rgba(79,142,247,0.5)', priceFormat: { type: 'volume' },
+  });
+  const volData = validCandles.map(c => ({
+    time: c.time,
+    value: c.volume || 0,
+    color: c.close >= c.open ? 'rgba(16,217,126,0.4)' : 'rgba(248,76,76,0.4)',
+  }));
+  volSeries.setData(volData);
+
+  // Sync time scales
+  _lwChart.timeScale().subscribeVisibleLogicalRangeChange(range => {
+    volChart.timeScale().setVisibleLogicalRange(range);
+  });
+  volChart.timeScale().subscribeVisibleLogicalRangeChange(range => {
+    _lwChart.timeScale().setVisibleLogicalRange(range);
+  });
+}
+
+// Keyboard close
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeDetail(); });
 
 // Start
 loadReport(false);

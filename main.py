@@ -242,11 +242,42 @@ def get_top4():
 
 @app.get("/stock/{symbol}")
 def get_stock(symbol: str):
-    """Get detailed analysis for a single stock"""
+    """Get detailed analysis for a single stock, including OHLCV candle history"""
     report = build_weekly_report()
     stock = next((s for s in report["stocks"] if s["symbol"] == symbol.upper()), None)
     if not stock:
         raise HTTPException(status_code=404, detail=f"Stock {symbol} not found")
+
+    # Attach OHLCV candle history (last 30 weeks) for charting
+    try:
+        from datetime import timedelta
+        all_data = get_all_stock_data()
+        sym_data = all_data.get(symbol.upper())
+        if sym_data:
+            weeks = sym_data.get("weeks", [])
+            # Assign real calendar dates: most-recent week = last Friday
+            today = datetime.now()
+            last_friday = today - timedelta(days=(today.weekday() - 4) % 7)
+            candles = []
+            n = len(weeks)
+            for i, w in enumerate(weeks):
+                offset_weeks = n - 1 - i          # 0 = most recent
+                week_date = last_friday - timedelta(weeks=offset_weeks)
+                candles.append({
+                    "time":   week_date.strftime("%Y-%m-%d"),
+                    "label":  w.label,
+                    "open":   round(w.open,  2) if w.open  else None,
+                    "high":   round(w.high,  2) if w.high  else None,
+                    "low":    round(w.low,   2) if w.low   else None,
+                    "close":  round(w.close, 2) if w.close else None,
+                    "volume": w.volume or 0,
+                })
+            stock = dict(stock)
+            stock["candles"] = candles[-30:]   # last 30 weekly candles
+            stock["pe_ratio"] = round(stock["current_price"] / stock["eps"], 1) if stock.get("eps") and stock["eps"] > 0 else None
+    except Exception as e:
+        print(f"[stock detail] candle fetch failed: {e}")
+
     return stock
 
 @app.get("/accuracy")
