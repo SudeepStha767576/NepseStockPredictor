@@ -617,11 +617,11 @@ function renderTable(data) {
   for (let wb = nw; wb >= 1; wb--) {
     const v   = perWk[String(wb)];
     const cls = accClass(v);
-    footHtml += `<td class="fw-acc-cell"><span class="acc-cell ${cls}">${accStr(v)}</span></td>`;
+    footHtml += `<td class="fw-acc-cell"><span class="acc-cell ${cls}">${v == null ? '—' : v + '%'}</span></td>`;
   }
 
   const total = data.overall_accuracy;
-  footHtml += `<td class="col-acc fw-acc-cell"><span class="acc-cell ${accClass(total)}">${accStr(total)}</span></td>`;
+  footHtml += `<td class="col-acc fw-acc-cell"><span class="acc-cell ${accClass(total)}">${total == null ? '—' : total + '%'}</span></td>`;
   footHtml += '</tr>';
   foot.innerHTML = footHtml;
 }
