@@ -1,14 +1,15 @@
 """
-NEPSE Data Scraper — Optimized
-- Live prices for all 342 stocks: 1 request (merolagani LatestMarket)
-- Metadata (sector, EPS, 52W H/L): cached weekly (merolagani CompanyDetail)
-- OHLCV history: incremental cache per stock — only re-fetches when new week arrives
-- Parallel fetching: 12 concurrent workers (ThreadPoolExecutor)
+NEPSE Data Scraper — Consolidated (V2)
+
+Sources:
+  merolagani.com   — live prices (1 request, all 342 stocks) + metadata
+  sharesansar.com  — OHLCV history (sole source, covers ALL 342 stocks,
+                     ~2 years of daily data per stock, 500 rows per request)
 
 Performance:
-  First run : ~4–5 min  (cold start: fetch all 342 histories + metadata)
-  Same-week : ~5–10 sec (LTP update only, history served from cache)
-  New week  : ~30–60 sec (parallel fetch of latest week for all stocks)
+  Cold start : ~3–5 min (build history + metadata cache for 342 stocks)
+  Same week  : ~5–10 sec (LTP update only, history from cache)
+  New week   : ~60–90 sec (parallel sharesansar refresh for all stocks)
 """
 
 import requests
@@ -32,10 +33,12 @@ HEADERS = {
 
 META_CACHE_FILE  = BASE_DIR / "cache" / "stock_meta.json"
 HIST_CACHE_DIR   = BASE_DIR / "cache" / "history"
-SS_ID_CACHE_FILE = BASE_DIR / "cache" / "ss_company_ids.json"   # sharesansar symbol→ID map
-META_CACHE_DAYS  = 7    # Refresh metadata weekly
-MAX_WORKERS      = 12   # Parallel fetch workers
-MAX_WEEKS        = 12   # Weeks of history to keep
+SS_ID_CACHE_FILE = BASE_DIR / "cache" / "ss_company_ids.json"
+
+META_CACHE_DAYS  = 7      # Refresh metadata weekly
+MAX_WORKERS      = 10     # Parallel fetch workers
+MAX_WEEKS        = 52     # 1 full year of weekly candles
+SS_ROWS_PER_FETCH = 500   # ~2 years of daily rows per stock
 
 SECTOR_MAP = {
     "hydro power":                  "Hydro",
@@ -60,16 +63,16 @@ SECTOR_MAP = {
 STOCK_META = {}
 
 
-# ─── NEPSE WEEK HELPERS ───────────────────────────────────────────
+# ─── NEPSE WEEK HELPERS ──────────────────────────────────────────
 
 def current_nepse_week_start() -> str:
     """ISO date of the Sunday that starts the current NEPSE trading week."""
     today = datetime.now()
-    days_since_sunday = (today.weekday() + 1) % 7   # Mon=1 … Sun=0
+    days_since_sunday = (today.weekday() + 1) % 7
     return (today - timedelta(days=days_since_sunday)).strftime("%Y-%m-%d")
 
 
-# ─── LIVE PRICES (1 REQUEST FOR ALL 342 STOCKS) ───────────────────
+# ─── LIVE PRICES — merolagani (1 request = all 342 stocks) ──────
 
 def fetch_all_live_prices() -> dict:
     """Returns { symbol: ltp_float } for every listed stock."""
@@ -96,7 +99,7 @@ def fetch_all_live_prices() -> dict:
         return {}
 
 
-# ─── METADATA (CACHED WEEKLY) ─────────────────────────────────────
+# ─── METADATA — merolagani CompanyDetail (cached weekly) ────────
 
 def fetch_stock_meta(symbol: str) -> dict:
     """Fetch sector, EPS, 52W H/L, name from merolagani CompanyDetail."""
@@ -172,7 +175,7 @@ def get_all_stock_meta(symbols: list) -> dict:
     cached = _load_meta_cache()
     missing = [s for s in symbols if s not in cached]
     if missing:
-        print(f"[scraper] Fetching metadata for {len(missing)} stocks (parallel)...")
+        print(f"[scraper] Fetching metadata for {len(missing)} stocks...")
         with ThreadPoolExecutor(max_workers=MAX_WORKERS) as ex:
             futures = {ex.submit(fetch_stock_meta, s): s for s in missing}
             done = 0
@@ -183,14 +186,147 @@ def get_all_stock_meta(symbols: list) -> dict:
                 except Exception as e:
                     print(f"[scraper] Meta failed {sym}: {e}")
                 done += 1
-                if done % 30 == 0:
+                if done % 50 == 0:
                     print(f"[scraper]   metadata {done}/{len(missing)}")
         _save_meta_cache(cached)
         print(f"[scraper] Metadata cached for {len(cached)} stocks")
     return cached
 
 
-# ─── HISTORY CACHE (INCREMENTAL, PER STOCK) ──────────────────────
+# ─── OHLCV HISTORY — sharesansar.com (sole source) ──────────────
+
+def _load_ss_id_cache() -> dict:
+    if not SS_ID_CACHE_FILE.exists():
+        return {}
+    try:
+        return json.loads(SS_ID_CACHE_FILE.read_text())
+    except Exception:
+        return {}
+
+
+def _save_ss_id_cache(mapping: dict):
+    SS_ID_CACHE_FILE.parent.mkdir(exist_ok=True)
+    SS_ID_CACHE_FILE.write_text(json.dumps(mapping, indent=2))
+
+
+def _ss_get_company_id(symbol: str) -> str | None:
+    """
+    Fetch sharesansar company page and extract the numeric company ID
+    hidden in <div id="companyid">16</div>.
+    Returns None if not found.
+    """
+    url = f"https://www.sharesansar.com/company/{symbol.lower()}"
+    try:
+        resp = requests.get(url, headers={"User-Agent": HEADERS["User-Agent"]}, timeout=15)
+        if resp.status_code != 200:
+            return None
+        soup = BeautifulSoup(resp.text, "html.parser")
+        el = soup.find(id="companyid")
+        return el.text.strip() if el else None
+    except Exception as e:
+        print(f"[scraper] SS ID error {symbol}: {e}")
+        return None
+
+
+def _ss_fetch_all_company_ids(symbols: list) -> dict:
+    """
+    Bulk-fetch sharesansar company IDs for all symbols that aren't cached yet.
+    Runs in parallel (MAX_WORKERS). Saves to cache after each batch.
+    """
+    id_cache = _load_ss_id_cache()
+    missing = [s for s in symbols if s not in id_cache]
+    if not missing:
+        return id_cache
+
+    print(f"[scraper] Fetching sharesansar IDs for {len(missing)} stocks...")
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as ex:
+        futures = {ex.submit(_ss_get_company_id, s): s for s in missing}
+        done = 0
+        for fut in as_completed(futures):
+            sym = futures[fut]
+            try:
+                cid = fut.result()
+                id_cache[sym] = cid or ""   # empty string = not found
+            except Exception:
+                id_cache[sym] = ""
+            done += 1
+            if done % 50 == 0:
+                print(f"[scraper]   SS IDs {done}/{len(missing)}")
+                _save_ss_id_cache(id_cache)
+
+    _save_ss_id_cache(id_cache)
+    found = sum(1 for v in id_cache.values() if v)
+    print(f"[scraper] SS IDs: {found}/{len(symbols)} stocks mapped")
+    return id_cache
+
+
+def _ss_fetch_ohlcv(symbol: str, company_id: str, rows: int = SS_ROWS_PER_FETCH) -> list:
+    """
+    Fetch up to `rows` daily OHLCV records from sharesansar for one stock.
+    Uses a fresh session (for CSRF token). Returns sorted list of row dicts.
+    """
+    ss_headers = {"User-Agent": HEADERS["User-Agent"]}
+    try:
+        session = requests.Session()
+        page = session.get(
+            f"https://www.sharesansar.com/company/{symbol.lower()}",
+            headers=ss_headers, timeout=15,
+        )
+        soup = BeautifulSoup(page.text, "html.parser")
+        csrf_tag = soup.find("meta", {"name": "_token"})
+        if not csrf_tag:
+            return []
+        csrf = csrf_tag["content"]
+
+        post_headers = {
+            **ss_headers,
+            "X-CSRF-TOKEN": csrf,
+            "X-Requested-With": "XMLHttpRequest",
+            "Accept": "application/json",
+            "Referer": f"https://www.sharesansar.com/company/{symbol.lower()}",
+            "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+        }
+
+        resp = session.post(
+            "https://www.sharesansar.com/company-price-history",
+            data={
+                "draw": "1",
+                "columns[0][data]": "DT_Row_Index",
+                "start": "0",
+                "length": str(rows),
+                "company": company_id,
+            },
+            headers=post_headers,
+            timeout=20,
+        )
+        if resp.status_code != 200:
+            return []
+
+        raw_rows = resp.json().get("data", [])
+        result = []
+        for r in raw_rows:
+            try:
+                dt = _parse_date(r["published_date"])
+                if not dt:
+                    continue
+                result.append({
+                    "date":   dt,
+                    "open":   float(str(r["open"]).replace(",", "")),
+                    "high":   float(str(r["high"]).replace(",", "")),
+                    "low":    float(str(r["low"]).replace(",", "")),
+                    "close":  float(str(r["close"]).replace(",", "")),
+                    "volume": int(float(str(r["traded_quantity"]).replace(",", ""))),
+                })
+            except (ValueError, KeyError):
+                continue
+        return sorted(result, key=lambda x: x["date"])
+
+    except Exception as e:
+        print(f"[scraper] SS OHLCV error {symbol}: {e}")
+        return []
+
+
+# ─── HISTORY CACHE (INCREMENTAL, PER STOCK) ────────────────────
 
 def _hist_cache_path(symbol: str) -> Path:
     safe = symbol.replace("/", "_").replace("\\", "_")
@@ -198,7 +334,6 @@ def _hist_cache_path(symbol: str) -> Path:
 
 
 def _load_hist_cache(symbol: str) -> dict | None:
-    """Returns {"week_start": str, "rows": [...daily rows with date as str]}"""
     p = _hist_cache_path(symbol)
     if not p.exists():
         return None
@@ -210,7 +345,6 @@ def _load_hist_cache(symbol: str) -> dict | None:
 
 def _save_hist_cache(symbol: str, week_start: str, daily_rows: list):
     HIST_CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    # Serialise dates to strings for JSON
     serialisable = [
         {**r, "date": r["date"].strftime("%Y-%m-%d") if isinstance(r["date"], datetime) else r["date"]}
         for r in daily_rows
@@ -218,174 +352,6 @@ def _save_hist_cache(symbol: str, week_start: str, daily_rows: list):
     _hist_cache_path(symbol).write_text(json.dumps(
         {"week_start": week_start, "rows": serialisable}, indent=2
     ))
-
-
-# ─── SHARESANSAR FALLBACK OHLCV ──────────────────────────────────
-
-def _load_ss_id_cache() -> dict:
-    """Load cached sharesansar symbol → company_id mapping."""
-    if not SS_ID_CACHE_FILE.exists():
-        return {}
-    try:
-        return json.loads(SS_ID_CACHE_FILE.read_text())
-    except Exception:
-        return {}
-
-def _save_ss_id_cache(mapping: dict):
-    SS_ID_CACHE_FILE.parent.mkdir(exist_ok=True)
-    SS_ID_CACHE_FILE.write_text(json.dumps(mapping, indent=2))
-
-def _ss_get_company_id(symbol: str) -> str | None:
-    """
-    Fetch sharesansar company page for symbol and extract numeric company ID.
-    The ID is stored in a hidden <div id="companyid"> element.
-    Returns None on failure.
-    """
-    url = f"https://www.sharesansar.com/company/{symbol.lower()}"
-    try:
-        resp = requests.get(url, headers=HEADERS, timeout=15)
-        if resp.status_code != 200:
-            return None
-        soup = BeautifulSoup(resp.text, "html.parser")
-        el = soup.find(id="companyid")
-        return el.text.strip() if el else None
-    except Exception as e:
-        print(f"[scraper] SS ID error {symbol}: {e}")
-        return None
-
-def _ss_fetch_daily_rows(symbol: str, company_id: str) -> list:
-    """
-    Fetch daily OHLCV from sharesansar.com using company numeric ID.
-    Sharesansar limits page size to 20 rows — paginates 5 pages (100 rows)
-    which covers ~20 weeks of trading history (enough for all V9 signals).
-    Uses a fresh session each call to get a valid CSRF token.
-    """
-    _ss_headers = {"User-Agent": HEADERS["User-Agent"]}   # minimal headers — sharesansar rejects > Accept
-    try:
-        session = requests.Session()
-        page = session.get(
-            f"https://www.sharesansar.com/company/{symbol.lower()}",
-            headers=_ss_headers, timeout=15
-        )
-        soup = BeautifulSoup(page.text, "html.parser")
-        csrf_tag = soup.find("meta", {"name": "_token"})
-        if not csrf_tag:
-            return []
-        csrf = csrf_tag["content"]
-
-        post_headers = {
-            **_ss_headers,
-            "X-CSRF-TOKEN": csrf,
-            "X-Requested-With": "XMLHttpRequest",
-            "Accept": "application/json",
-            "Referer": f"https://www.sharesansar.com/company/{symbol.lower()}",
-            "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-        }
-
-        # Fetch 5 pages × 20 rows = 100 most-recent daily rows (≈ 20 trading weeks).
-        # Sharesansar returns data newest-first (offset 0 = most recent trading day).
-        all_rows = []
-        for draw, page_start in enumerate(range(0, 100, 20), start=1):
-            resp = session.post(
-                "https://www.sharesansar.com/company-price-history",
-                data={"draw": str(draw), "columns[0][data]": "DT_Row_Index",
-                      "start": str(page_start), "length": "20", "company": company_id},
-                headers=post_headers, timeout=15,
-            )
-            if resp.status_code != 200:
-                break
-            batch = resp.json().get("data", [])
-            if not batch:
-                break
-            all_rows.extend(batch)
-
-        result = []
-        for r in all_rows:
-            try:
-                dt = _parse_date(r["published_date"])
-                if not dt:
-                    continue
-                result.append({
-                    "date":   dt,
-                    "open":   float(r["open"].replace(",", "")),
-                    "high":   float(r["high"].replace(",", "")),
-                    "low":    float(r["low"].replace(",", "")),
-                    "close":  float(r["close"].replace(",", "")),
-                    "volume": int(float(r["traded_quantity"].replace(",", ""))),
-                })
-            except (ValueError, KeyError):
-                continue
-        return sorted(result, key=lambda x: x["date"])
-    except Exception as e:
-        print(f"[scraper] SS OHLCV error {symbol}: {e}")
-        return []
-
-def _fetch_daily_rows_with_fallback(symbol: str) -> list:
-    """
-    Try financialnotices first; fall back to sharesansar if empty.
-    Also caches the sharesansar company ID so we don't re-fetch pages.
-    """
-    rows = _fetch_daily_rows(symbol)
-    if rows:
-        return rows
-
-    # financialnotices failed — try sharesansar
-    id_cache = _load_ss_id_cache()
-    company_id = id_cache.get(symbol)
-    if company_id is None:
-        company_id = _ss_get_company_id(symbol)
-        if company_id:
-            id_cache[symbol] = company_id
-            _save_ss_id_cache(id_cache)
-        else:
-            id_cache[symbol] = ""     # mark as "not found" so we skip next time
-            _save_ss_id_cache(id_cache)
-
-    if not company_id:
-        return []
-
-    rows = _ss_fetch_daily_rows(symbol, company_id)
-    if rows:
-        print(f"[scraper] SS fallback used for {symbol} ({len(rows)} rows)")
-    return rows
-
-
-# ─── HISTORY FETCH FROM FINANCIALNOTICES ─────────────────────────
-
-def _fetch_daily_rows(symbol: str) -> list:
-    """Fetch raw daily OHLCV rows from financialnotices.com."""
-    url = f"https://www.financialnotices.com/stock-nepse.php?symbol={symbol}"
-    try:
-        resp = requests.get(url, headers=HEADERS, timeout=15)
-        resp.raise_for_status()
-        soup = BeautifulSoup(resp.text, "html.parser")
-        tables = soup.find_all("table")
-        table = tables[1] if len(tables) >= 2 else (tables[0] if tables else None)
-        if not table:
-            return []
-        rows = []
-        for tr in table.find_all("tr")[1:]:
-            tds = tr.find_all("td")
-            if len(tds) < 6:
-                continue
-            try:
-                dt = _parse_date(tds[0].text.strip())
-                if not dt:
-                    continue
-                rows.append({
-                    "date":   dt,
-                    "open":   float(tds[2].text.strip().replace(",", "")),
-                    "high":   float(tds[3].text.strip().replace(",", "")),
-                    "low":    float(tds[4].text.strip().replace(",", "")),
-                    "close":  float(tds[1].text.strip().replace(",", "")),
-                    "volume": int(tds[5].text.strip().replace(",", "")),
-                })
-            except (ValueError, AttributeError):
-                continue
-        return sorted(rows, key=lambda x: x["date"])
-    except Exception as e:
-        print(f"[scraper] History error {symbol}: {e}")
-        return []
 
 
 def _parse_date(s: str):
@@ -397,8 +363,8 @@ def _parse_date(s: str):
     return None
 
 
-def _aggregate_weekly(daily_rows: list, max_weeks: int) -> list:
-    """Aggregate daily OHLCV into weekly candles (NEPSE week = Sun→Thu)."""
+def _aggregate_weekly(daily_rows: list, max_weeks: int = MAX_WEEKS) -> list:
+    """Aggregate daily OHLCV into weekly candles (NEPSE week = Sun–Thu)."""
     weeks: dict = {}
     for row in daily_rows:
         dt = row["date"] if isinstance(row["date"], datetime) else datetime.fromisoformat(row["date"])
@@ -433,41 +399,46 @@ def _aggregate_weekly(daily_rows: list, max_weeks: int) -> list:
     return result
 
 
-def get_stock_history(symbol: str) -> list:
+def get_stock_history(symbol: str, company_id: str) -> list:
     """
-    Return weekly OHLCV for a stock.
-    Uses incremental cache: only fetches from web if current week is not cached.
-    Empty results are also cached so failures aren't retried every run.
+    Return weekly OHLCV for a stock using sharesansar as the sole source.
+    Uses incremental cache: only fetches when current week is not cached.
     """
     now_week = current_nepse_week_start()
     cached = _load_hist_cache(symbol)
 
     if cached and cached.get("week_start") == now_week:
-        # Cache is current (including cached empty result) — no web fetch needed
-        return _aggregate_weekly(cached["rows"], MAX_WEEKS)
+        # Cache is current — no web fetch needed
+        return _aggregate_weekly(cached.get("rows", []))
 
-    # Need to refresh — try financialnotices, fall back to sharesansar
-    daily_rows = _fetch_daily_rows_with_fallback(symbol)
+    # Need to refresh
+    if not company_id:
+        # No ID found — use stale cache if available
+        if cached and cached.get("rows"):
+            return _aggregate_weekly(cached["rows"])
+        return []
 
-    # Always cache result (even empty) so we don't retry failed stocks this week
+    daily_rows = _ss_fetch_ohlcv(symbol, company_id)
+
+    # Cache result (even empty) to avoid retry this week
     _save_hist_cache(symbol, now_week, daily_rows if daily_rows else [])
 
     if daily_rows:
-        return _aggregate_weekly(daily_rows, MAX_WEEKS)
+        return _aggregate_weekly(daily_rows)
 
-    # Fetch failed — fall back to stale cache rows if available
+    # Fetch failed — fall back to stale cache
     if cached and cached.get("rows"):
         print(f"[scraper] Using stale cache for {symbol}")
-        return _aggregate_weekly(cached["rows"], MAX_WEEKS)
+        return _aggregate_weekly(cached["rows"])
 
     return []
 
 
-# ─── PARALLEL STOCK DATA LOADER ──────────────────────────────────
+# ─── PARALLEL STOCK DATA LOADER ────────────────────────────────
 
-def _fetch_one_stock(symbol: str, meta: dict, live_prices: dict) -> tuple:
+def _fetch_one_stock(symbol: str, meta: dict, live_prices: dict, company_id: str) -> tuple:
     """Worker: returns (symbol, stock_data_dict). Called in parallel."""
-    weeks = get_stock_history(symbol)
+    weeks = get_stock_history(symbol, company_id)
     ltp = live_prices.get(symbol, 0.0)
     current_price = ltp if ltp else (weeks[-1].close if weeks else 0.0)
     m = meta.get(symbol, {})
@@ -485,15 +456,19 @@ def _fetch_one_stock(symbol: str, meta: dict, live_prices: dict) -> tuple:
 
 def get_all_stock_data() -> dict:
     """
-    Fetch data for ALL NEPSE stocks with caching + parallelism.
+    Fetch data for ALL NEPSE stocks.
 
-    Cold start  : ~4–5 min (builds history + metadata cache)
-    Same week   : ~5–10 sec (only LTP update, history from cache)
-    New week    : ~30–60 sec (parallel history refresh)
+    Data sources:
+      merolagani.com  → live prices (1 req) + metadata (cached weekly)
+      sharesansar.com → OHLCV history (up to 52 weeks, cached per-stock)
+
+    Cold start  : ~3–5 min (342 stocks × history + metadata fetch)
+    Same week   : ~5–10 sec (LTP update only, history from cache)
+    New week    : ~60–90 sec (parallel sharesansar refresh)
     """
     t0 = datetime.now()
 
-    print("[scraper] Fetching live prices...")
+    print("[scraper] Fetching live prices (merolagani)...")
     live_prices = fetch_all_live_prices()
     if not live_prices:
         print("[scraper] ERROR: No live prices")
@@ -502,20 +477,28 @@ def get_all_stock_data() -> dict:
     symbols = sorted(live_prices.keys())
     print(f"[scraper] {len(symbols)} stocks | week={current_nepse_week_start()}")
 
-    # Count how many need a web fetch vs can use cache
-    now_week = current_nepse_week_start()
-    cached_count  = sum(1 for s in symbols if _load_hist_cache(s) and
-                        _load_hist_cache(s).get("week_start") == now_week)
-    fetch_count   = len(symbols) - cached_count
-    print(f"[scraper] History: {cached_count} cached, {fetch_count} need fetch")
+    # Pre-fetch all sharesansar company IDs (cached after first run)
+    id_map = _ss_fetch_all_company_ids(symbols)
 
-    # Metadata
+    # Metadata from merolagani
     meta = get_all_stock_meta(symbols)
 
-    # Parallel history fetch
+    # Count cache hits
+    now_week = current_nepse_week_start()
+    cached_count = sum(
+        1 for s in symbols
+        if (c := _load_hist_cache(s)) and c.get("week_start") == now_week
+    )
+    fetch_count = len(symbols) - cached_count
+    print(f"[scraper] History: {cached_count} cached, {fetch_count} need fetch (sharesansar)")
+
+    # Parallel OHLCV fetch
     all_data = {}
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as ex:
-        futures = {ex.submit(_fetch_one_stock, s, meta, live_prices): s for s in symbols}
+        futures = {
+            ex.submit(_fetch_one_stock, s, meta, live_prices, id_map.get(s, "")): s
+            for s in symbols
+        }
         done = 0
         for fut in as_completed(futures):
             sym = futures[fut]
@@ -529,11 +512,12 @@ def get_all_stock_data() -> dict:
                 print(f"[scraper]   {done}/{len(symbols)} stocks done")
 
     elapsed = (datetime.now() - t0).seconds
-    print(f"[scraper] Done: {len(all_data)} stocks in {elapsed}s")
+    has_history = sum(1 for d in all_data.values() if d.get("weeks"))
+    print(f"[scraper] Done: {len(all_data)} stocks ({has_history} with history) in {elapsed}s")
     return all_data
 
 
-# ─── HELPERS ─────────────────────────────────────────────────────
+# ─── HELPERS ──────────────────────────────────────────────────
 
 def check_event_week() -> tuple:
     today = datetime.now()

@@ -119,7 +119,7 @@ def compute_ema(prices: list, period: int) -> Optional[float]:
 
 # ─── UNCHANGED V5 HELPERS ─────────────────────────────────────────
 
-def compute_weekly_atr(weeks: list, current_idx: int, lookback: int = 4) -> Optional[float]:
+def compute_weekly_atr(weeks: list, current_idx: int, lookback: int = 8) -> Optional[float]:
     ranges = []
     for j in range(current_idx - 1, max(-1, current_idx - lookback - 1), -1):
         if j >= 0 and weeks[j].high and weeks[j].low:
@@ -220,13 +220,11 @@ def score_v5(
     signals.streak_count = streak
     signals.streak_dir  = sdir or "bull"
 
-    # ── S3: Volume Quality (max 15, was 25) ───────────────────────
-    # Ablation: high volume on green weeks correlated with MISSES (-4.0).
-    # High volume + green can mean distribution (institutions selling into
-    # retail buying). Only reward if RSI confirms genuine accumulation.
-    # RSI is computed later so use a proxy: cap volume bonus at 15.
+    # ── S3: Volume Quality (max 15) — 12-week baseline ────────────
+    # 12-week volume baseline is far more stable than 4-week.
+    # Reduces noise from single anomalous weeks distorting the average.
     vols = []
-    for j in range(current_idx - 1, max(-1, current_idx - 7), -1):
+    for j in range(current_idx - 1, max(-1, current_idx - 13), -1):
         if weeks[j].volume:
             vols.append(weeks[j].volume)
     med_vol = compute_median(vols) if len(vols) >= 3 else None
@@ -253,11 +251,10 @@ def score_v5(
             atr_flag = True
     signals.atr_flag = atr_flag
 
-    # ── S4: Price vs 4-week average — INVERTED (max 15) ──────────
-    # Ablation: price ABOVE average correlated with MISSES (-3.5).
-    # Extended stocks revert; depressed stocks bounce (mean reversion).
-    # Old logic rewarded being above average — that was backwards.
-    closes4 = [weeks[j].close for j in range(current_idx - 1, max(-1, current_idx - 5), -1)
+    # ── S4: Price vs 8-week average — INVERTED (max 15) ──────────
+    # 8-week baseline more stable than 4-week with 52 weeks available.
+    # Price ABOVE average correlated with MISSES (mean-reversion bias).
+    closes4 = [weeks[j].close for j in range(current_idx - 1, max(-1, current_idx - 9), -1)
                if weeks[j].close]
     if len(closes4) >= 2:
         avg4 = sum(closes4) / len(closes4)
@@ -274,11 +271,13 @@ def score_v5(
     s5 = 10 if sector_dir is None else 20 if sector_dir == 1 else -10
     signals.s5_sector = s5
 
-    # ── S6: RSI (6-week) — STRONGEST signal (max 35, -20) ────────
+    # ── S6: RSI (14-week standard) — STRONGEST signal (max 35,-20) ─
+    # Now using proper 14-period RSI (industry standard) enabled by 52W data.
+    # Falls back to 6-period for stocks with limited history.
     # Ablation: +11.75 correlation — by far the most predictive signal.
-    # Oversold stocks reliably bounce; overbought stocks reliably stall.
-    # Boosted from max 25 → 35 to reflect its dominance.
-    rsi = compute_rsi(weeks, current_idx, period=6) if current_idx >= 4 else 50.0
+    if   current_idx >= 14: rsi = compute_rsi(weeks, current_idx, period=14)
+    elif current_idx >= 6:  rsi = compute_rsi(weeks, current_idx, period=6)
+    else:                   rsi = 50.0
     signals.rsi_value = rsi
     if   rsi <= 25: s6 = 35    # Extremely oversold — very strong bounce signal
     elif rsi <= 35: s6 = 28    # Heavily oversold
@@ -289,25 +288,30 @@ def score_v5(
     else:           s6 = -20   # Very overbought — hard gate effectively
     signals.s6_rsi = s6
 
-    # ── S7: EMA Crossover 3W vs 6W (max 8, -8) ───────────────────
-    # Ablation: -4.82 correlation — EMA uptrend hurts predictions.
-    # Stocks already in mature uptrends are overextended → revert.
-    # Death cross (downtrend starting) is still a useful WARNING.
-    # Reduced from max 20 → 8 to limit its noise contribution.
-    closes_all = [weeks[j].close for j in range(max(0, current_idx - 8), current_idx + 1)
+    # ── S7: EMA Crossover 8W vs 21W (max 10, -10) ────────────────
+    # Now using 8/21 EMA (industry standard) enabled by 52W history.
+    # Falls back to 3/6 EMA for stocks with limited history.
+    # Fresh crossovers most valuable; mature trends minimal signal.
+    closes_all = [weeks[j].close for j in range(max(0, current_idx - 24), current_idx + 1)
                   if weeks[j].close]
-    ema3 = compute_ema(closes_all, 3)
-    ema6 = compute_ema(closes_all, 6)
-    ema3_prev = compute_ema(closes_all[:-1], 3) if len(closes_all) > 3 else None
-    ema6_prev = compute_ema(closes_all[:-1], 6) if len(closes_all) > 6 else None
+    if len(closes_all) >= 21:
+        ema_fast = compute_ema(closes_all, 8)
+        ema_slow = compute_ema(closes_all, 21)
+        ema_fast_prev = compute_ema(closes_all[:-1], 8)  if len(closes_all) > 8  else None
+        ema_slow_prev = compute_ema(closes_all[:-1], 21) if len(closes_all) > 21 else None
+    else:
+        ema_fast = compute_ema(closes_all, 3)
+        ema_slow = compute_ema(closes_all, 6)
+        ema_fast_prev = compute_ema(closes_all[:-1], 3) if len(closes_all) > 3 else None
+        ema_slow_prev = compute_ema(closes_all[:-1], 6) if len(closes_all) > 6 else None
 
-    if ema3 and ema6:
-        cross_up   = ema3_prev and ema6_prev and ema3_prev <= ema6_prev and ema3 > ema6
-        cross_down = ema3_prev and ema6_prev and ema3_prev >= ema6_prev and ema3 < ema6
-        if   cross_up:       s7 = 8    # Fresh crossover only (not mature uptrend)
-        elif ema3 > ema6:    s7 = 2    # Mature uptrend — minimal bonus
-        elif cross_down:     s7 = -8   # Death cross — keep the warning
-        else:                s7 = -4   # Sustained downtrend
+    if ema_fast and ema_slow:
+        cross_up   = ema_fast_prev and ema_slow_prev and ema_fast_prev <= ema_slow_prev and ema_fast > ema_slow
+        cross_down = ema_fast_prev and ema_slow_prev and ema_fast_prev >= ema_slow_prev and ema_fast < ema_slow
+        if   cross_up:          s7 = 10   # Fresh golden cross
+        elif ema_fast > ema_slow: s7 = 2   # Mature uptrend — minimal
+        elif cross_down:         s7 = -10  # Fresh death cross
+        else:                    s7 = -5   # Sustained downtrend
     else:
         s7 = 2
     signals.s7_ema = s7
@@ -433,9 +437,9 @@ def generate_reason(signals: SignalBreakdown, pred: str, eps: float) -> str:
     elif signals.rsi_value <= 35: parts.append(f"RSI {signals.rsi_value} — heavily oversold, bounce due")
     elif signals.rsi_value <= 45: parts.append(f"RSI {signals.rsi_value} — oversold zone")
     elif signals.rsi_value >= 70: parts.append(f"⚠ RSI {signals.rsi_value} — overbought, caution")
-    if signals.s7_ema == 8:       parts.append("golden cross (EMA 3W crossed above 6W)")
-    elif signals.s7_ema == 2:     parts.append("EMA uptrend active")
-    elif signals.s7_ema == -8:    parts.append("⚠ death cross — EMA trend reversed down")
+    if signals.s7_ema >= 10:      parts.append("golden cross (EMA 8W crossed above 21W)")
+    elif signals.s7_ema == 2:     parts.append("EMA 8W/21W uptrend active")
+    elif signals.s7_ema <= -10:   parts.append("⚠ death cross — EMA 8W dropped below 21W")
     # 52W position (V8 — bottom favoured)
     if signals.s9_week52 >= 15:   parts.append("near 52W low — deep value zone")
     elif signals.s9_week52 >= 10: parts.append("lower 52W range — value area")

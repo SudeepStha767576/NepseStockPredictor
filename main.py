@@ -78,8 +78,8 @@ def build_weekly_report(force_refresh: bool = False) -> dict:
 
     for symbol, data in all_data.items():
         weeks = data["weeks"]
-        if len(weeks) < 3:
-            continue  # Need at least 3 weeks of data
+        if len(weeks) < 5:
+            continue  # Need at least 5 weeks for meaningful signals
 
         current_idx = len(weeks) - 1  # Most recent week
         w = weeks[current_idx]
@@ -187,7 +187,7 @@ def build_weekly_report(force_refresh: bool = False) -> dict:
         "neutral_count":    sum(1 for r in results if r["prediction"] == "NEUTRAL"),
         "bear_count":       sum(1 for r in results if r["prediction"] == "BEAR"),
         "model_accuracy":   None,  # populated by /backtest endpoint
-        "model_version":    "V8",
+        "model_version":    "V9",
         "stocks":           results,
     }
 
