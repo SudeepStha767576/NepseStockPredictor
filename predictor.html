@@ -1,0 +1,592 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Daily Predictor — NEPSE</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
+  <style>
+    :root {
+      --bg: #0a0e1a; --bg2: #0f1320; --bg3: #141824; --bg4: #1a1f2e;
+      --border: rgba(255,255,255,.07); --border2: rgba(255,255,255,.12);
+      --text: #e8eaf0; --muted: #6b7280; --muted2: #9ca3af;
+      --bull: #10d97e; --bull-dim: rgba(16,217,126,.15); --bull-bd: rgba(16,217,126,.25);
+      --bear: #f43f5e; --bear-dim: rgba(244,63,94,.15); --bear-bd: rgba(244,63,94,.25);
+      --neutral: #f59e0b; --accent: #38bdf8; --accent-dim: rgba(56,189,248,.15);
+      --gold: #f59e0b;
+      --display: 'Space Grotesk', sans-serif;
+      --body: 'Inter', sans-serif;
+      --mono: 'JetBrains Mono', monospace;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: var(--bg); color: var(--text); font-family: var(--body); font-size: 14px; line-height: 1.6; min-height: 100vh; }
+    body::before {
+      content: ''; position: fixed; inset: 0; pointer-events: none; z-index: 0; opacity: .4;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");
+    }
+    .container { position: relative; z-index: 1; max-width: 1200px; margin: 0 auto; padding: 24px 20px 60px; }
+
+    /* ── NAV ── */
+    .nav { display: flex; align-items: center; justify-content: space-between; margin-bottom: 28px; }
+    .back-link { display: inline-flex; align-items: center; gap: 6px; font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); text-decoration: none; padding: 6px 12px; border: 1px solid var(--border); border-radius: 6px; transition: all .2s; }
+    .back-link:hover { color: var(--text); border-color: var(--border2); background: var(--bg2); }
+    .nav-title { font-family: var(--display); font-size: 18px; font-weight: 700; color: var(--text); }
+    .nav-sub { font-family: var(--mono); font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+
+    /* ── CONTROL BAR ── */
+    .control-bar {
+      display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+      background: var(--bg2); border: 1px solid var(--border); border-radius: 14px;
+      padding: 16px 20px; margin-bottom: 28px;
+    }
+    .control-label { font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); white-space: nowrap; }
+    .stock-select {
+      flex: 1; min-width: 180px; max-width: 320px;
+      background: var(--bg3); border: 1px solid var(--border2); border-radius: 8px;
+      color: var(--text); font-family: var(--mono); font-size: 13px; font-weight: 600;
+      padding: 9px 12px; cursor: pointer; appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%236b7280' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+      background-repeat: no-repeat; background-position: right 12px center;
+      padding-right: 32px;
+    }
+    .stock-select:focus { outline: none; border-color: var(--accent); }
+    .run-btn {
+      display: inline-flex; align-items: center; gap: 8px;
+      background: var(--bull); color: #000; border: none; border-radius: 8px;
+      font-family: var(--display); font-size: 13px; font-weight: 700;
+      padding: 10px 22px; cursor: pointer; transition: all .2s; white-space: nowrap;
+    }
+    .run-btn:hover { background: #0fc470; transform: translateY(-1px); }
+    .run-btn:active { transform: translateY(0); }
+    .run-btn:disabled { background: var(--muted); cursor: not-allowed; transform: none; }
+    .run-btn .btn-spinner { width: 14px; height: 14px; border: 2px solid rgba(0,0,0,.3); border-top-color: #000; border-radius: 50%; animation: spin .7s linear infinite; display: none; }
+    .run-btn.loading .btn-spinner { display: block; }
+    .run-btn.loading .btn-icon { display: none; }
+    .compute-note { font-family: var(--mono); font-size: 10px; color: var(--muted); flex: 1; }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── IDLE STATE ── */
+    .idle-state { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; min-height: 300px; color: var(--muted); text-align: center; }
+    .idle-state .idle-icon { font-size: 48px; opacity: .4; }
+    .idle-state .idle-text { font-family: var(--display); font-size: 16px; font-weight: 700; }
+    .idle-state .idle-sub  { font-size: 12px; max-width: 320px; line-height: 1.6; }
+
+    /* ── ERROR ── */
+    .error-banner { background: var(--bear-dim); border: 1px solid var(--bear-bd); border-radius: 12px; padding: 16px 20px; color: var(--bear); font-size: 13px; margin-bottom: 24px; display: none; }
+
+    /* ── RESULTS ── */
+    #resultsSection { display: none; }
+
+    /* ── WEEKLY OVERVIEW CARD ── */
+    .weekly-card {
+      background: var(--bg2); border: 1px solid var(--border); border-radius: 14px;
+      padding: 20px 24px; margin-bottom: 24px;
+      display: grid; grid-template-columns: auto 1fr auto; gap: 20px; align-items: center;
+    }
+    @media(max-width: 700px) { .weekly-card { grid-template-columns: 1fr; } }
+    .wc-grade {
+      width: 64px; height: 64px; border-radius: 12px; flex-shrink: 0;
+      display: flex; align-items: center; justify-content: center;
+      font-family: var(--display); font-size: 26px; font-weight: 800;
+    }
+    .grade-Ap { background: rgba(16,217,126,.2); color: var(--bull); border: 1px solid var(--bull-bd); }
+    .grade-A  { background: rgba(16,217,126,.15); color: var(--bull); border: 1px solid rgba(16,217,126,.2); }
+    .grade-B  { background: rgba(56,189,248,.15); color: var(--accent); border: 1px solid rgba(56,189,248,.2); }
+    .grade-C  { background: rgba(245,158,11,.15); color: var(--gold); border: 1px solid rgba(245,158,11,.2); }
+    .grade-N  { background: rgba(107,114,128,.15); color: var(--muted); border: 1px solid rgba(107,114,128,.2); }
+    .wc-body .wc-sym { font-family: var(--display); font-size: 22px; font-weight: 800; }
+    .wc-body .wc-name { font-size: 12px; color: var(--muted2); margin-bottom: 6px; }
+    .wc-body .wc-reason { font-size: 12px; color: var(--muted2); line-height: 1.6; border-left: 3px solid var(--bull); padding-left: 10px; margin-top: 8px; }
+    .wc-stats { display: flex; flex-direction: column; gap: 8px; align-items: flex-end; }
+    @media(max-width: 700px) { .wc-stats { flex-direction: row; align-items: center; flex-wrap: wrap; gap: 8px; } }
+    .dir-badge { display: inline-flex; align-items: center; gap: 5px; font-family: var(--mono); font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; padding: 4px 12px; border-radius: 6px; }
+    .dir-BULL    { background: var(--bull-dim); color: var(--bull); border: 1px solid var(--bull-bd); }
+    .dir-NEUTRAL { background: var(--neutral-dim, rgba(245,158,11,.15)); color: var(--neutral); border: 1px solid rgba(245,158,11,.25); }
+    .score-chip { font-family: var(--mono); font-size: 11px; color: var(--muted2); background: var(--bg3); border: 1px solid var(--border); border-radius: 5px; padding: 3px 10px; }
+
+    /* ── SECTION TITLE ── */
+    .section-title { font-family: var(--display); font-size: 14px; font-weight: 700; margin-bottom: 14px; display: flex; align-items: center; gap: 8px; }
+    .section-tag { font-family: var(--mono); font-size: 10px; padding: 2px 8px; border-radius: 4px; background: var(--bg3); color: var(--muted); text-transform: uppercase; letter-spacing: .06em; font-weight: 400; }
+
+    /* ── CHART ── */
+    .chart-section { margin-bottom: 28px; }
+    .chart-wrap { background: #0d0f14; border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+    #predChart { width: 100%; height: 380px; }
+    #volChart  { width: 100%; height: 70px; background: #0d0f14; }
+    .chart-legend { display: flex; gap: 16px; flex-wrap: wrap; padding: 9px 14px; border-top: 1px solid var(--border); background: var(--bg2); }
+    .legend-item { display: flex; align-items: center; gap: 6px; font-family: var(--mono); font-size: 10px; color: var(--muted); }
+    .legend-dot { width: 10px; height: 3px; border-radius: 2px; }
+    .legend-box { width: 10px; height: 10px; border-radius: 2px; opacity: .5; }
+
+    /* ── DAILY PLAN TABLE ── */
+    .plan-section { margin-bottom: 28px; }
+    .plan-table-wrap { overflow-x: auto; border-radius: 12px; border: 1px solid var(--border); }
+    table.plan-table { width: 100%; border-collapse: collapse; min-width: 860px; }
+    table.plan-table th {
+      background: var(--bg3); font-family: var(--mono); font-size: 10px; text-transform: uppercase;
+      letter-spacing: .07em; color: var(--muted); padding: 10px 14px; text-align: left;
+      border-bottom: 1px solid var(--border); white-space: nowrap;
+    }
+    table.plan-table td {
+      padding: 13px 14px; border-bottom: 1px solid var(--border);
+      font-family: var(--mono); font-size: 12px; background: var(--bg2);
+    }
+    table.plan-table tr:last-child td { border-bottom: none; }
+    table.plan-table tr:hover td { background: var(--bg3); }
+    .td-day { font-weight: 700; font-size: 12px; color: var(--text); }
+    .td-date { font-size: 10px; color: var(--muted); margin-top: 2px; }
+    .td-range { color: var(--muted2); }
+    .td-close { font-weight: 600; }
+    .td-close.up   { color: var(--bull); }
+    .td-close.down { color: var(--bear); }
+    .td-entry  { color: var(--text); font-weight: 600; }
+    .td-sl     { color: var(--bear); }
+    .td-t1     { color: var(--bull); }
+    .td-t2     { color: rgba(16,217,126,.7); }
+    .pct-tag { font-size: 9px; opacity: .7; margin-left: 3px; }
+
+    /* ── MODEL INTERNALS GRID ── */
+    .internals-section { margin-bottom: 32px; }
+    .internals-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+    @media(max-width: 900px) { .internals-grid { grid-template-columns: repeat(2, 1fr); } }
+    @media(max-width: 500px)  { .internals-grid { grid-template-columns: 1fr; } }
+    .int-card { background: var(--bg2); border: 1px solid var(--border); border-radius: 12px; padding: 16px; }
+    .int-label { font-family: var(--mono); font-size: 9px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); margin-bottom: 6px; }
+    .int-value { font-family: var(--mono); font-size: 18px; font-weight: 700; margin-bottom: 4px; }
+    .int-note  { font-size: 11px; color: var(--muted); line-height: 1.5; }
+
+    /* ── BASE RATE BANNER ── */
+    .base-rate-banner {
+      background: linear-gradient(135deg, rgba(16,217,126,.06), rgba(16,217,126,.02));
+      border: 1px solid var(--bull-bd); border-radius: 12px; padding: 14px 20px;
+      margin-bottom: 20px; font-size: 13px; color: var(--muted2); line-height: 1.7;
+    }
+    .base-rate-banner strong { color: var(--text); }
+    .base-rate-banner .hl { color: var(--bull); font-family: var(--mono); font-weight: 600; }
+
+    /* ── DISCLAIMER ── */
+    .disclaimer { text-align: center; font-size: 11px; color: var(--muted); padding-top: 20px; border-top: 1px solid var(--border); line-height: 1.8; margin-top: 20px; }
+  </style>
+</head>
+<body>
+<div class="container">
+
+  <!-- NAV -->
+  <div class="nav">
+    <a href="/" class="back-link">← Dashboard</a>
+    <div style="text-align:right">
+      <div class="nav-title">Daily Predictor</div>
+      <div class="nav-sub">Per-stock · next 5 trading days</div>
+    </div>
+  </div>
+
+  <!-- CONTROL BAR -->
+  <div class="control-bar">
+    <span class="control-label">Stock</span>
+    <select class="stock-select" id="stockSelect">
+      <option value="">Loading stocks…</option>
+    </select>
+    <button class="run-btn" id="runBtn" onclick="runEngine()">
+      <span class="btn-icon">▶ Run Engine</span>
+      <div class="btn-spinner"></div>
+    </button>
+    <span class="compute-note" id="computeNote">Select a stock and click Run Engine</span>
+  </div>
+
+  <!-- ERROR -->
+  <div class="error-banner" id="errorBanner"></div>
+
+  <!-- IDLE STATE -->
+  <div class="idle-state" id="idleState">
+    <div class="idle-icon">📊</div>
+    <div class="idle-text">Select a stock to begin</div>
+    <div class="idle-sub">
+      Choose any stock from the dropdown above. The engine will compute a custom daily prediction for the next 5 NEPSE trading days using its own historical price behavior.
+    </div>
+  </div>
+
+  <!-- RESULTS -->
+  <div id="resultsSection">
+
+    <!-- WEEKLY OVERVIEW -->
+    <div class="weekly-card" id="weeklyCard"></div>
+
+    <!-- CHART -->
+    <section class="chart-section">
+      <h2 class="section-title">
+        Price Chart
+        <span class="section-tag">30 real days + 5 projected</span>
+      </h2>
+      <div class="chart-wrap">
+        <div id="predChart"></div>
+        <div id="volChart"></div>
+        <div class="chart-legend" id="chartLegend"></div>
+      </div>
+    </section>
+
+    <!-- BASE RATE BANNER -->
+    <div class="base-rate-banner" id="baseRateBanner"></div>
+
+    <!-- DAILY PLAN TABLE -->
+    <section class="plan-section">
+      <h2 class="section-title">
+        Daily Plan — Next 5 Trading Days
+        <span class="section-tag">Entry · Stop · Target</span>
+      </h2>
+      <div class="plan-table-wrap">
+        <table class="plan-table">
+          <thead>
+            <tr>
+              <th>Day</th>
+              <th>Expected Open</th>
+              <th>Expected Range</th>
+              <th>Expected Close</th>
+              <th>Entry Zone</th>
+              <th>Stop Loss</th>
+              <th>Target 1</th>
+              <th>Target 2</th>
+              <th>Daily Move</th>
+            </tr>
+          </thead>
+          <tbody id="planTableBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- MODEL INTERNALS -->
+    <section class="internals-section">
+      <h2 class="section-title">
+        Engine Internals
+        <span class="section-tag">How this prediction was built</span>
+      </h2>
+      <div class="internals-grid" id="internalsGrid"></div>
+    </section>
+
+  </div><!-- /resultsSection -->
+
+  <div class="disclaimer">
+    NEPSE Daily Predictor — V8 weekly engine + per-stock ATR projection<br>
+    Not financial advice · Past performance does not guarantee future results
+  </div>
+
+</div><!-- /container -->
+
+<script>
+/* ── helpers ── */
+const API = () => window.location.origin;
+const fmt = n => n == null ? '—' : (+n).toLocaleString('en-IN', {maximumFractionDigits: 2});
+const pct = (a, b) => b ? ((a - b) / Math.abs(b) * 100).toFixed(1) + '%' : '—';
+const sign = v => v >= 0 ? '+' : '';
+const gradeClass = g => 'wc-grade grade-' + (g === 'A+' ? 'Ap' : g);
+
+let chartInstance  = null;
+let volChartInstance = null;
+
+/* ── populate stock dropdown ── */
+async function loadStocks() {
+  try {
+    const res  = await fetch(`${API()}/daily-predict/stocks`, { cache: 'no-store' });
+    const data = await res.json();
+    const sel  = document.getElementById('stockSelect');
+    sel.innerHTML = '';
+    (data.symbols || []).forEach(sym => {
+      const opt = document.createElement('option');
+      opt.value = sym;
+      opt.textContent = sym;
+      if (sym === 'NABIL') opt.selected = true;
+      sel.appendChild(opt);
+    });
+    // If NABIL not found, select first
+    if (!sel.value && sel.options.length) sel.selectedIndex = 0;
+  } catch(e) {
+    document.getElementById('stockSelect').innerHTML =
+      '<option value="NABIL">NABIL</option>';
+  }
+}
+
+/* ── RUN ENGINE ── */
+async function runEngine() {
+  const sym = document.getElementById('stockSelect').value;
+  if (!sym) return;
+
+  const btn = document.getElementById('runBtn');
+  const note = document.getElementById('computeNote');
+  const err  = document.getElementById('errorBanner');
+
+  btn.classList.add('loading');
+  btn.disabled = true;
+  note.textContent = `Running engine for ${sym}… (computing historical base rate)`;
+  err.style.display = 'none';
+  document.getElementById('idleState').style.display = 'none';
+  document.getElementById('resultsSection').style.display = 'none';
+
+  try {
+    const res = await fetch(`${API()}/daily-predict/${sym}`, { cache: 'no-store' });
+    if (!res.ok) {
+      const detail = await res.json().catch(() => ({ detail: res.statusText }));
+      throw new Error(detail.detail || res.statusText);
+    }
+    const d = await res.json();
+    renderResults(d);
+    note.textContent = `✓ Engine ran for ${sym} — ${d.model.total_weekly_candles} weekly candles used`;
+  } catch(e) {
+    err.textContent = `⚠ Engine error: ${e.message}`;
+    err.style.display = 'block';
+    document.getElementById('idleState').style.display = 'flex';
+    note.textContent = 'Select a stock and click Run Engine';
+  } finally {
+    btn.classList.remove('loading');
+    btn.disabled = false;
+  }
+}
+
+/* ── RENDER ALL ── */
+function renderResults(d) {
+  renderWeeklyCard(d);
+  renderChart(d);
+  renderBaseRateBanner(d);
+  renderPlanTable(d);
+  renderInternals(d);
+  document.getElementById('resultsSection').style.display = 'block';
+  document.getElementById('idleState').style.display = 'none';
+}
+
+/* ── WEEKLY CARD ── */
+function renderWeeklyCard(d) {
+  const w = d.weekly;
+  const g = w.grade || 'N';
+  const priceChg = d.history && d.history.length >= 2
+    ? ((d.history[d.history.length-1].close - d.history[d.history.length-2].close)
+       / d.history[d.history.length-2].close * 100).toFixed(2)
+    : null;
+  const chgStr = priceChg !== null
+    ? `<span style="color:${+priceChg>=0?'var(--bull)':'var(--bear)'}">${+priceChg>=0?'+':''}${priceChg}%</span>`
+    : '';
+
+  document.getElementById('weeklyCard').innerHTML = `
+    <div class="${gradeClass(g)}">${g}</div>
+    <div class="wc-body">
+      <div class="wc-sym">${d.symbol} ${chgStr} <span style="font-size:14px;color:var(--muted2);font-weight:400">NPR ${fmt(d.current_price)}</span></div>
+      <div class="wc-name">${d.name || d.symbol}</div>
+      <div class="wc-reason">${(w.reason || '').replace(/·/g,'<span style="color:var(--bull);margin:0 4px">·</span>')}</div>
+    </div>
+    <div class="wc-stats">
+      <span class="dir-badge dir-${w.prediction || 'NEUTRAL'}">
+        ${w.prediction === 'BULL' ? '▲' : '—'} ${w.prediction || 'NEUTRAL'}
+      </span>
+      <span class="score-chip">Score ${w.score} / 185</span>
+      <span class="score-chip">Weekly ATR NPR ${d.weekly.signals.atr_value || '—'}</span>
+    </div>
+  `;
+}
+
+/* ── CHART ── */
+function renderChart(d) {
+  // Destroy old charts
+  if (chartInstance)    { chartInstance.remove();    chartInstance    = null; }
+  if (volChartInstance) { volChartInstance.remove(); volChartInstance = null; }
+
+  const chartEl = document.getElementById('predChart');
+  const volEl   = document.getElementById('volChart');
+
+  const chart = LightweightCharts.createChart(chartEl, {
+    width: chartEl.clientWidth, height: chartEl.clientHeight,
+    layout: { background: { color: '#0d0f14' }, textColor: '#6b7280' },
+    grid: { vertLines: { color: 'rgba(255,255,255,.04)' }, horzLines: { color: 'rgba(255,255,255,.04)' } },
+    crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
+    rightPriceScale: { borderColor: 'rgba(255,255,255,.08)' },
+    timeScale: { borderColor: 'rgba(255,255,255,.08)', timeVisible: true },
+  });
+  chartInstance = chart;
+
+  const volChart = LightweightCharts.createChart(volEl, {
+    width: volEl.clientWidth, height: volEl.clientHeight,
+    layout: { background: { color: '#0d0f14' }, textColor: '#6b7280' },
+    grid: { vertLines: { color: 'transparent' }, horzLines: { color: 'transparent' } },
+    rightPriceScale: { visible: false }, timeScale: { visible: false },
+  });
+  volChartInstance = volChart;
+
+  // Real candles
+  const candleSeries = chart.addCandlestickSeries({
+    upColor: '#10d97e', downColor: '#f43f5e',
+    borderUpColor: '#10d97e', borderDownColor: '#f43f5e',
+    wickUpColor: '#10d97e', wickDownColor: '#f43f5e',
+  });
+  const volSeries = volChart.addHistogramSeries({ color: 'rgba(107,114,128,.4)', priceFormat: { type: 'volume' } });
+
+  const realCandles = (d.history || []).map(r => ({ time: r.date, open: r.open, high: r.high, low: r.low, close: r.close }));
+  const realVol     = (d.history || []).map(r => ({ time: r.date, value: r.volume || 0, color: r.close >= r.open ? 'rgba(16,217,126,.3)' : 'rgba(244,63,94,.3)' }));
+  candleSeries.setData(realCandles);
+  volSeries.setData(realVol);
+
+  // Projected candles (semi-transparent)
+  const projSeries = chart.addCandlestickSeries({
+    upColor: 'rgba(16,217,126,.4)',   downColor: 'rgba(244,63,94,.4)',
+    borderUpColor: 'rgba(16,217,126,.7)', borderDownColor: 'rgba(244,63,94,.7)',
+    wickUpColor: 'rgba(16,217,126,.5)',   wickDownColor: 'rgba(244,63,94,.5)',
+  });
+
+  const isBull = d.weekly.prediction === 'BULL';
+  const projCandles = (d.days || []).map(day => ({
+    time:  day.date,
+    open:  day.expected_open,
+    high:  day.expected_high,
+    low:   day.expected_low,
+    close: day.expected_close,
+  }));
+  projSeries.setData(projCandles);
+
+  // ATR band as area series (expected high / low range for projected days)
+  const bandHigh = chart.addLineSeries({ color: 'rgba(56,189,248,.15)', lineWidth: 1, lineStyle: 2, title: 'Band High' });
+  const bandLow  = chart.addLineSeries({ color: 'rgba(56,189,248,.15)', lineWidth: 1, lineStyle: 2, title: 'Band Low'  });
+  bandHigh.setData((d.days || []).map(day => ({ time: day.date, value: day.expected_high })));
+  bandLow.setData( (d.days || []).map(day => ({ time: day.date, value: day.expected_low  })));
+
+  // Entry / SL / T1 lines for the first projected day
+  if (d.days && d.days.length) {
+    const fd = d.days[0];
+    const allDates = [...(d.history || []).map(r => r.date), ...(d.days || []).map(x => x.date)];
+    const addLevel = (price, color, style, lbl) => {
+      const s = chart.addLineSeries({ color, lineWidth: 1, lineStyle: style, title: lbl });
+      s.setData(allDates.map(t => ({ time: t, value: price })));
+    };
+    addLevel(fd.entry,     'rgba(255,255,255,.6)', 2, `Entry ${fd.entry}`);
+    addLevel(fd.stop_loss, 'rgba(244,63,94,.7)',   2, `SL ${fd.stop_loss}`);
+    addLevel(fd.target_1,  'rgba(16,217,126,.7)',  2, `T1 ${fd.target_1}`);
+  }
+
+  document.getElementById('chartLegend').innerHTML = `
+    <div class="legend-item"><div class="legend-dot" style="background:#10d97e"></div>Real candles</div>
+    <div class="legend-item"><div class="legend-box" style="background:rgba(16,217,126,1)"></div>Projected (${isBull ? 'BULL' : 'NEUTRAL'})</div>
+    <div class="legend-item"><div class="legend-dot" style="background:rgba(56,189,248,.5)"></div>ATR band</div>
+    <div class="legend-item"><div class="legend-dot" style="background:rgba(255,255,255,.6)"></div>Entry</div>
+    <div class="legend-item"><div class="legend-dot" style="background:rgba(244,63,94,.7)"></div>Stop Loss</div>
+    <div class="legend-item"><div class="legend-dot" style="background:rgba(16,217,126,.7)"></div>Target 1</div>
+  `;
+
+  chart.timeScale().subscribeVisibleLogicalRangeChange(r => {
+    if (r) volChart.timeScale().setVisibleLogicalRange(r);
+  });
+  window.addEventListener('resize', () => {
+    chart.applyOptions({ width: chartEl.clientWidth });
+    volChart.applyOptions({ width: volEl.clientWidth });
+  });
+}
+
+/* ── BASE RATE BANNER ── */
+function renderBaseRateBanner(d) {
+  const m  = d.model;
+  const isBull = d.weekly.prediction === 'BULL';
+  const hitPct = (m.bull_hit_rate * 100).toFixed(0);
+  const expRet = m.weekly_expected_return > 0 ? `+${m.weekly_expected_return.toFixed(2)}%` : `${m.weekly_expected_return.toFixed(2)}%`;
+
+  let text;
+  if (isBull && m.bull_weeks_in_history >= 5) {
+    text = `<strong>${d.symbol} BULL history:</strong> In <span class="hl">${m.bull_weeks_in_history}</span> past BULL-scored weeks, the stock went <span class="hl">UP ${hitPct}%</span> of the time. Median BULL week return: <span class="hl">${m.base_rate_pct > 0 ? '+' : ''}${m.base_rate_pct.toFixed(2)}%</span>. With score ${d.weekly.score} (${d.weekly.grade}), this week's expected return is projected at <span class="hl">${expRet}</span> for the week, distributed across 5 trading days below.`;
+  } else if (isBull) {
+    text = `<strong>Insufficient history</strong> for a reliable base rate (only ${m.bull_weeks_in_history} past BULL weeks). Using fallback 0.8% weekly return. Projections are indicative only.`;
+  } else {
+    text = `<strong>Weekly engine: NEUTRAL.</strong> Score ${d.weekly.score} — below the BULL threshold of 115. Daily projections use a mild RSI mean-reversion bias (RSI ${m.daily_rsi}) + 5-day momentum (${m.momentum_5d > 0 ? '+' : ''}${m.momentum_5d.toFixed(2)}%/day). Expected weekly move: <span class="hl">${expRet}</span>.`;
+  }
+  document.getElementById('baseRateBanner').innerHTML = text;
+}
+
+/* ── PLAN TABLE ── */
+function renderPlanTable(d) {
+  const tbody = document.getElementById('planTableBody');
+  const isBull = d.weekly.prediction === 'BULL';
+  const entry0 = d.days && d.days[0] ? d.days[0].entry : null;
+
+  tbody.innerHTML = (d.days || []).map((day, i) => {
+    const expChg = day.daily_exp_ret;
+    const cls    = expChg > 0 ? 'up' : expChg < 0 ? 'down' : '';
+    const slPct  = entry0 ? ((day.stop_loss - day.entry) / day.entry * 100).toFixed(1) : null;
+    const t1Pct  = entry0 ? ((day.target_1  - day.entry) / day.entry * 100).toFixed(1) : null;
+    const t2Pct  = entry0 ? ((day.target_2  - day.entry) / day.entry * 100).toFixed(1) : null;
+
+    return `
+      <tr>
+        <td>
+          <div class="td-day">${day.day}</div>
+          <div class="td-date">${day.date}</div>
+        </td>
+        <td>${fmt(day.expected_open)}</td>
+        <td class="td-range">${fmt(day.expected_low)} – ${fmt(day.expected_high)}</td>
+        <td class="td-close ${cls}">
+          ${fmt(day.expected_close)}
+          <span class="pct-tag">(${expChg > 0 ? '+' : ''}${expChg.toFixed(2)}%)</span>
+        </td>
+        <td class="td-entry">${fmt(day.entry)}</td>
+        <td class="td-sl">${fmt(day.stop_loss)}${slPct ? `<span class="pct-tag">(${slPct}%)</span>` : ''}</td>
+        <td class="td-t1">${fmt(day.target_1)}${t1Pct ? `<span class="pct-tag">(+${t1Pct}%)</span>` : ''}</td>
+        <td class="td-t2">${fmt(day.target_2)}${t2Pct ? `<span class="pct-tag">(+${t2Pct}%)</span>` : ''}</td>
+        <td style="font-family:var(--mono);font-size:11px;color:${expChg>0?'var(--bull)':expChg<0?'var(--bear)':'var(--muted)'}">${expChg>0?'+':''}${expChg.toFixed(2)}%</td>
+      </tr>`;
+  }).join('');
+}
+
+/* ── INTERNALS ── */
+function renderInternals(d) {
+  const m  = d.model;
+  const sig = d.weekly.signals;
+
+  const rsiColor = m.daily_rsi < 30 ? 'var(--bull)' : m.daily_rsi > 70 ? 'var(--bear)' : 'var(--accent)';
+  const rsiLabel = m.daily_rsi < 30 ? 'Oversold' : m.daily_rsi < 45 ? 'Low' : m.daily_rsi < 55 ? 'Neutral' : m.daily_rsi < 70 ? 'High' : 'Overbought';
+  const emaStatus = m.daily_ema5 > m.daily_ema20 ? '↑ EMA5 > EMA20' : '↓ EMA5 < EMA20';
+  const emaColor  = m.daily_ema5 > m.daily_ema20 ? 'var(--bull)' : 'var(--bear)';
+  const momColor  = m.momentum_5d > 0 ? 'var(--bull)' : m.momentum_5d < 0 ? 'var(--bear)' : 'var(--muted)';
+
+  document.getElementById('internalsGrid').innerHTML = `
+    <div class="int-card">
+      <div class="int-label">Daily ATR (14d)</div>
+      <div class="int-value" style="color:var(--accent)">NPR ${m.daily_atr}</div>
+      <div class="int-note">Average daily range. Entry-to-stop = 0.5× ATR = NPR ${(m.daily_atr * 0.5).toFixed(1)}. T1 = 1×ATR above entry.</div>
+    </div>
+    <div class="int-card">
+      <div class="int-label">Daily RSI (14d)</div>
+      <div class="int-value" style="color:${rsiColor}">${m.daily_rsi}</div>
+      <div class="int-note">${rsiLabel} zone. ${m.daily_rsi < 40 ? 'Daily oversold — supports bounce bias.' : m.daily_rsi > 65 ? 'Daily overbought — reduces upside confidence.' : 'Neutral daily momentum.'}</div>
+    </div>
+    <div class="int-card">
+      <div class="int-label">5-Day Momentum</div>
+      <div class="int-value" style="color:${momColor}">${m.momentum_5d > 0 ? '+' : ''}${m.momentum_5d.toFixed(2)}%<span style="font-size:12px">/day</span></div>
+      <div class="int-note">Average daily return over the last 5 sessions. Blended at 20% weight into the weekly projection.</div>
+    </div>
+    <div class="int-card">
+      <div class="int-label">EMA Trend (Daily)</div>
+      <div class="int-value" style="color:${emaColor};font-size:14px">${emaStatus}</div>
+      <div class="int-note">EMA 5: ${m.daily_ema5} · EMA 20: ${m.daily_ema20}. Daily trend structure (informational).</div>
+    </div>
+    <div class="int-card">
+      <div class="int-label">BULL Base Rate</div>
+      <div class="int-value" style="color:var(--bull)">${(m.bull_hit_rate * 100).toFixed(0)}<span style="font-size:12px">%</span></div>
+      <div class="int-note">Hit rate over ${m.bull_weeks_in_history} past BULL calls. Median BULL return: ${m.base_rate_pct > 0 ? '+' : ''}${m.base_rate_pct.toFixed(2)}%.</div>
+    </div>
+    <div class="int-card">
+      <div class="int-label">Weekly RSI (V8)</div>
+      <div class="int-value" style="color:${sig.rsi_value < 40 ? 'var(--bull)' : 'var(--muted2)'}">${sig.rsi_value}</div>
+      <div class="int-note">Weekly RSI used by V8 engine. Score: ${sig.s6_rsi > 0 ? '+' : ''}${sig.s6_rsi} pts. Primary signal in the model (+11.75 ablation).</div>
+    </div>
+    <div class="int-card">
+      <div class="int-label">Volume Ratio</div>
+      <div class="int-value" style="color:${m.vol_ratio > 1.3 ? 'var(--bull)' : 'var(--muted2)'}">${m.vol_ratio}×</div>
+      <div class="int-note">Last session volume vs 20-day median. >1.3× = elevated participation.</div>
+    </div>
+    <div class="int-card">
+      <div class="int-label">Data Coverage</div>
+      <div class="int-value" style="color:var(--muted2);font-size:15px">${m.total_weekly_candles}W / ${m.total_daily_rows}D</div>
+      <div class="int-note">${m.total_weekly_candles} weekly candles + ${m.total_daily_rows} daily rows used. Minimum needed: 20W / 25D.</div>
+    </div>
+  `;
+}
+
+/* ── INIT ── */
+loadStocks();
+</script>
+</body>
+</html>

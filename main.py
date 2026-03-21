@@ -234,6 +234,11 @@ def serve_detail():
     """Serve the stock detail analysis UI"""
     return FileResponse(BASE_DIR / "detail.html")
 
+@app.get("/predictor", response_class=FileResponse)
+def serve_predictor():
+    """Serve the per-stock daily predictor UI"""
+    return FileResponse(BASE_DIR / "predictor.html")
+
 # ─── API ENDPOINTS ───────────────────────────────────────────────
 
 @app.get("/report")
@@ -436,6 +441,54 @@ def get_market_composite():
         composite_file.write_text(json.dumps(result, indent=2))
         return {"composite": composite}
 
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/daily-predict/stocks")
+def list_predictor_stocks():
+    """Return sorted list of all symbols that have a cached history file."""
+    try:
+        from daily_engine import list_available_symbols
+        return {"symbols": list_available_symbols()}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/daily-predict/{symbol}")
+def daily_predict(symbol: str):
+    """
+    Run per-stock daily prediction engine for the next 5 NEPSE trading days.
+    Uses cached daily OHLCV + V8 weekly engine (read-only).
+    """
+    try:
+        from daily_engine import predict_daily
+
+        # Try to supply metadata from the cached weekly report for richer signals
+        stock_meta = None
+        try:
+            report = build_weekly_report()
+            match  = next(
+                (s for s in report.get("stocks", []) if s["symbol"] == symbol.upper()),
+                None,
+            )
+            if match:
+                stock_meta = {
+                    "eps":           match.get("eps"),
+                    "hi52":          match.get("week52_high"),
+                    "lo52":          match.get("week52_low"),
+                    "name":          match.get("name"),
+                    "sector":        match.get("sector"),
+                    "current_price": match.get("current_price"),
+                }
+        except Exception:
+            pass   # metadata is optional — daily_engine will estimate from cache
+
+        result = predict_daily(symbol.upper(), stock_meta=stock_meta)
+        return JSONResponse(content=result,
+                            headers={"Cache-Control": "no-store, no-cache"})
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
